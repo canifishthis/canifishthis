@@ -130,6 +130,8 @@ CLASSIFIED = {
     # --- tools whose outputs are generated (review inputs, feeds, proposals, worklists)
     "pipeline/bathymetry/contours.py": "generated bathymetry contours",
     "pipeline/bathymetry/propose.py": "generated bathymetry proposals",
+    "pipeline/bathymetry/placed_contours.py": "(T1268) READS the frozen placings; writes only generated "
+                                              "bathymetry/placed/ (the lines, the lake facts, the report)",
     "pipeline/bathymetry/placings.py": "(T1267) curated via the writer (placings.json); its report to generated "
                                        "bathymetry/placings_report.json",
     "pipeline/gauges/matches.py": "write_match refuses a curated path (refuse_curated); a build-dir stamp",

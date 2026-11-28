@@ -100,7 +100,7 @@
       "ladder": "area",
       "flows": null
     },
-    "contour": {
+    "depth_contour": {
       "geometry": "line",
       "attrs": [
         "item",

@@ -84,16 +84,69 @@ def zoom_for_area(area_m2: float | None, floor: int = MIN_ZOOM,
     return max(MAX_ZOOM, floor)
 
 
-def zoom_for_contour(depth_m: float | None, index: bool = False,
-                     floor: int = 11) -> int:
-    """Depth contours come in coarsest-first, so a lake is readable before it is detailed.
+#: (T1268) THE DEPTH-LINE LADDER, decided PER SHEET from the sheet's own levels in its NATIVE unit (the values printed on
+#: the chart; never the converted metres, where 10 ft = 3.048 m is a multiple of nothing). The index step is the
+#: smallest "nice" step (`NICE_STEPS`: 1, 2, 5 x a power of ten) that leaves the sheet `INDEX_LINES_MIN` to
+#: `INDEX_LINES_MAX` index levels (else the smallest leaving 1 to `INDEX_LINES_MAX`); the middle step is the next finer
+#: nice step, kept only when its levels are at most `MIDDLE_LINES_FACTOR` x the index levels (else no middle tier).
+#: Index lines (labelled) from z11, middle from z12, every other line from z13. A sheet with one level: that line is its
+#: index. So every accepted lake keeps a numbered line at z11, and z11 stays light on a phone (planning chat's pick "A",
+#: 2026-11-28, from the B / A sheets: B put 740 heavy pieces on Carp at z11; the 3x cap keeps z12 from going bare).
+NICE_STEPS = tuple(round(m * 10 ** k, 6) for k in range(-1, 4) for m in (1, 2, 5))
+INDEX_LINES_MIN = 2
+INDEX_LINES_MAX = 4
+MIDDLE_LINES_FACTOR = 3
+#: a depth level is "on" a step when value / step is within this of a whole number (the levels are read as floats)
+DEPTH_ON_TOLERANCE = 1e-6
+#: the first zoom of an index (labelled) line, of a middle-step line, and of every other depth line
+DEPTH_INDEX_ZOOM = 11
+DEPTH_MIDDLE_ZOOM = 12
+DEPTH_REST_ZOOM = 13
+#: EVERY constant the depth functions below read is in `pipeline.bathymetry.placed_contours.policy()`, whose digest the
+#: placed set is keyed on (`test_bathymetry_t1268` reads their code for the names, so a new one cannot be missed). A
+#: change of their LOGIC (`_on`, `sheet_ladder`, `depth_line_zoom`) with the same constants changes the lines while the
+#: digest stays: it needs a bump of `placed_contours.VERSION` (that is what VERSION is for).
 
-    A 10 m contour is worth showing several zooms before a 1 m one. ``index``
-    marks the labelled contours, which lead.
-    """
-    d = abs(depth_m or 0)
-    if index or d % 10 == 0:
-        return max(floor, 11)
-    if d % 5 == 0:
-        return max(floor, 12)
-    return max(floor, 13)
+
+def _on(value: float, step: float) -> bool:
+    return value > 0 and abs(value / step - round(value / step)) < DEPTH_ON_TOLERANCE
+
+
+def sheet_ladder(levels) -> tuple[float, float | None]:
+    """(index step, middle step or None) for one sheet's depth levels (native unit). Raises on a sheet with no level."""
+    lv = sorted({abs(float(v)) for v in levels if v and abs(float(v)) > 0})
+    if not lv:
+        raise ValueError("a sheet with no depth level has no ladder")
+    if len(lv) == 1:
+        return lv[0], None                        # its one line is its index
+
+    def count(step):
+        return sum(1 for v in lv if _on(v, step))
+
+    def middle(i, n):
+        if i == 0:
+            return None
+        finer = NICE_STEPS[i - 1]
+        return finer if count(finer) <= MIDDLE_LINES_FACTOR * n else None
+
+    for i, step in enumerate(NICE_STEPS):
+        n = count(step)
+        if INDEX_LINES_MIN <= n <= INDEX_LINES_MAX:
+            return step, middle(i, n)
+    for i, step in enumerate(NICE_STEPS):          # the levels jump past the band: the smallest step with 1..MAX lines
+        n = count(step)
+        if 1 <= n <= INDEX_LINES_MAX:
+            return step, middle(i, n)
+    raise ValueError(f"levels {lv[:8]}...: no nice step leaves an index line")
+
+
+def depth_line_zoom(native: float, ladder_steps: tuple[float, float | None],
+                    floor: int = DEPTH_INDEX_ZOOM) -> tuple[int, bool]:
+    """(minzoom, index) of one depth line from its NATIVE value and its sheet's (index step, middle step or None)."""
+    index_step, mid_step = ladder_steps
+    d = abs(float(native))
+    if _on(d, index_step):
+        return max(floor, DEPTH_INDEX_ZOOM), True
+    if mid_step is not None and _on(d, mid_step):
+        return max(floor, DEPTH_MIDDLE_ZOOM), False
+    return max(floor, DEPTH_REST_ZOOM), False

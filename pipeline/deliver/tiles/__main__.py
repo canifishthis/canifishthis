@@ -22,6 +22,16 @@ def no_archive_refusals(out_dir: Path, no_release: bool, tiles_only: bool) -> li
     return out
 
 
+def placed_home(out_dir: Path) -> Path:
+    """(T1268) Where this tiles build keeps its placed depth lines (`pipeline.bathymetry.placed_contours`): the live
+    `GENERATED.bathymetry/placed` ONLY for the live tiles directory; any other `--out` (a `--side` build, a scratch
+    build) keeps its own under `<out>/placed`, so a side build never writes live data (AGENTS 17)."""
+    from pipeline.bathymetry import placed_contours
+    if Path(out_dir).resolve() == Path(GENERATED.tiles).resolve():
+        return placed_contours.out_dir()
+    return Path(out_dir) / "placed"
+
+
 def parser() -> argparse.ArgumentParser:
     """The tile step's flags; every input defaults to the live one (`test_mini_deliver_inputs.py` pins that)."""
     ap = argparse.ArgumentParser(prog="python -m pipeline.deliver.tiles")
@@ -113,7 +123,8 @@ def main() -> None:
     counts: dict[str, int] = {}
     print("admin geography")
     counts |= export.export_admin(a.gpkg, layer_dir)
-    counts |= export.export_contours(a.gpkg, layer_dir)
+    # (T1268) the frozen depth placings' lines only; the placed set lives beside THIS build's tiles (`placed_home`)
+    counts |= export.export_contours(layer_dir, build_dir, placed=placed_home(out_dir))
     # THE FIELD, for the zooms where a river is a hairline — see tiles/basins.py. Grouped
     # with admin geography rather than with water because it is neither: it is the ground a
     # reading is a claim about, and it draws only below the zoom the rivers take over at.
@@ -142,8 +153,10 @@ def main() -> None:
         counts |= _tidal.export_tidal(a.gpkg, layer_dir, tgeoms)
 
     print(f"\nfeatures: {sum(counts.values()):,}")
-    for k in sorted(counts):
-        print(f"  {k:<16} {counts[k]:>9,}")
+    for k in sorted(counts):                    # (T1268) a size line per layer: its features and its layer file
+        f = layer_dir / f"{k}.geojsonl"
+        mb = f"{f.stat().st_size / 1e6:>9,.1f} MB" if f.exists() else ""
+        print(f"  {k:<16} {counts[k]:>9,}{mb}")
     print(f"export took {time.time() - t0:,.0f}s")
 
     if a.no_archive:

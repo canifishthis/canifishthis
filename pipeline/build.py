@@ -125,7 +125,9 @@ STAGE_GRAPH: tuple[Stage, ...] = (
     Stage("tiles", (), (), ("pipeline/deliver/tiles", "pipeline/atlas/splits",
                             # T166: the tidal pieces the tiles leave off (`tiles/tidal.py`): T678, the atlas's
                             # record; an atlas cut before it, the reach's resolvers
-                            "pipeline/atlas/reach/outside.py", "pipeline/atlas/reach/extent.py"),
+                            "pipeline/atlas/reach/outside.py", "pipeline/atlas/reach/extent.py",
+                            # (T1268) the tiles stage makes the placed depth lines itself (`placed_contours.make`)
+                            "pipeline/bathymetry"),
           "atlas.pmtiles + layers/ + the released tile folder"),
     # after reach: a FIRST BUILD resolves on the atlas + its reach run (`resolve --first-build`); a reach rerun does
     # not rerun it (`after`, not `depends`): an existing resolution belongs to the release that made it
@@ -432,7 +434,9 @@ NOT_CONTENT_KEYED: dict[str, dict[str, str]] = {
     "tiles": {"gauges.matches": _MATCH_PATH + " (no tile holds a gauge, P18)",
               "waters.tidal_split_authority": _ATLAS_ONLY.format("`splits.coast.load_authority`"),
               "regulations.synopsis": "imported with the `deliver.bundle` package (`place_names`): only the bundle's "
-                                      "`build` reads it"},
+                                      "`build` reads it",
+              "bathymetry.sheet_units": "(T1268) named by `bathymetry.placings.load_units`, which only `--freeze` "
+                                        "calls: the tiles read the frozen rows (`depth_placings`), whose units it fixed"},
     "deliver": {},
 }
 
@@ -468,7 +472,9 @@ def curated_parts(stage: str, corpus: str | None = None) -> dict:
         from pipeline.atlas.splits.area_splits import area_files
         # the curated areas, and (T1229) every file a def of them names by `file` (the hand-drawn sign zones): a moved
         # vertex redraws the `sign_zone` layer
-        return {"areas": _bytes_digest("waters.area_closures"),
+        # (T1268) the frozen depth placings: a new freeze redraws the `depth_contour` layer (the placed lines are
+        # refused when they were made from another freeze, `placed_contours.require_current`)
+        return {"areas": _bytes_digest("waters.area_closures"), "depth_placings": _bytes_digest("bathymetry.placings"),
                 "area_files": {name: hashlib.sha256(p.read_bytes()).hexdigest()[:16]
                                for name, p in sorted(area_files().items())}}
     if stage == "deliver":
@@ -558,7 +564,9 @@ def tiles_key(build_dir: Path, m: dict | None = None) -> dict:
             **_tidal_key(build_dir),
             **curated_parts("tiles"), "code": stage_code("tiles", m),
             "tools": tool_versions(),
-            "obstacles": stamp(ob) if ob.exists() else None}
+            "obstacles": stamp(ob) if ob.exists() else None,
+            # (T1268) the vector zips the depth lines are drawn from, by their committed hash list's bytes
+            "depth_vectors": stamp(depth_vectors_source())}
 
 
 #: (T1171) THE OUTSIDE PROGRAMS THE TILES STAGE RUNS (`tiles.tippe`: tippecanoe draws every pass, tile-join merges them;
@@ -596,6 +604,12 @@ def tool_versions() -> dict[str, str]:
                              f"version — fix the install ({exe})\n{(r.stdout + r.stderr).strip()[:400]}")
         out[tool] = said[0]
     return out
+
+
+def depth_vectors_source() -> Path:
+    """(T1268) The committed sha256 list of the vector depth zips (`SOURCE.bathymetry_vectors_sha256`): the zips the
+    tiles' depth lines are drawn from, by content (`pipeline.bathymetry.vectors` proves each zip against it)."""
+    return Path(SOURCE.bathymetry_vectors_sha256)
 
 
 def obstacles_source() -> Path:

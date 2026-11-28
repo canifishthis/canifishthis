@@ -1048,36 +1048,53 @@ def export_admin(gpkg: str, out_dir: Path) -> dict:
     return {lname: close() for lname, (_, close) in writers.items()}
 
 
-def export_contours(gpkg: str, out_dir: Path) -> dict:
-    """Digitised lake bathymetry. Absent until `fetch_data.py bathymetry_contours` runs —
-    a missing layer is a skip, never a failure, because the rest of the map is still valid."""
-    import fiona
-    import geopandas as gpd
+def export_contours(out_dir: Path, build_dir: Path, *, placed: Path, placings: Path | None = None) -> dict:
+    """(T1268) The placed lake depth lines, `depth_contour`: ONLY the frozen placings' lines
+    (`pipeline.bathymetry.placed_contours`), the SHIPPING view only, and the WHOLE layer file written each run (never
+    appended; an empty set writes it empty). The placed set missing or made from other inputs is made here through the
+    one producer (logged); a lake item this atlas does not hold, a zip that fails its hash, the size gate: RAISE (W46;
+    it used to skip a missing gpkg layer, and the map then shipped without depth while saying nothing).
+    `placed` has no default: the caller names its build's placed set (`tiles.__main__.placed_home`), so a side build
+    can never fall through to the live `GENERATED.bathymetry/placed` (AGENTS 17)."""
+    import orjson
     from pyproj import Transformer
-    if "bathymetry_contours" not in set(fiona.listlayers(gpkg)):
-        print("  contour          <- not fetched yet, skipping")
-        return {"contour": 0}
+    from shapely.geometry import LineString
+    from pipeline.bathymetry import placed_contours, placings as _placings
+    frozen = _placings.load(placings)
+    spec = BY_NAME["depth_contour"]
+    rows = _placings.shipping(frozen)
+    if not rows:                                # withdrawn rows are a record, never drawn
+        # THE EXPORT OWNS THE LAYER FILE: the tiles read any non-empty layer file left in out/layers, so an empty set
+        # writes it EMPTY (old lines never survive a withdrawal or an emptied file)
+        _writer(out_dir, spec)[1]()
+        print(f"  {'depth_contour':<16} <- no shipping frozen placings (bathymetry/placings.json): empty")
+        return {"depth_contour": 0}
+    # every lake item the lines carry must be an item of THIS atlas (a re-cut builds a new one): refused, never dropped
+    placed_contours.require_items(rows, placed_contours.registry_ids(build_dir), build_dir)
+    inputs = placed_contours.inputs_now(placings)
+    try:
+        lines = placed_contours.require_current(placed, inputs=inputs)
+    except placed_contours.StalePlacedContours as why:
+        # (rule 62: one rebuild command) the tiles stage makes the placed set itself, through the one producer
+        print(f"  {'depth_contour':<16} <- making the placed depth lines: {why}", flush=True)
+        placed_contours.make(frozen, build_dir=build_dir, out=placed, inputs=inputs)
+        lines = placed_contours.require_current(placed, inputs=inputs)
     tf = Transformer.from_crs(3005, 4326, always_xy=True)
-    spec = BY_NAME["contour"]
     write, close = _writer(out_dir, spec)
-    gdf = gpd.read_file(gpkg, layer="bathymetry_contours", engine="pyogrio")
-    if gdf.crs and gdf.crs.to_epsg() != 3005:
-        gdf = gdf.to_crs(3005)
-    depth_col = next((c for c in gdf.columns if "DEPTH" in c.upper()), None)
-    wb_col = next((c for c in gdf.columns if "WATERBODY" in c.upper()), None)
-    for _, row in gdf.iterrows():
-        g = row.geometry
-        if g is None or g.is_empty:
-            continue
-        d = row.get(depth_col) if depth_col else None
-        d = float(d) if d is not None else None
-        write(_to4326(g.boundary if g.geom_type in ("Polygon", "MultiPolygon") else g, tf),
-              {"item": row.get(wb_col), "depth_m": d,
-               "index": 1 if (d and d % 10 == 0) else None},
-              ladder.zoom_for_contour(d, floor=spec.minzoom))
+    nbytes = 0
+    with lines.open("rb") as fh:
+        for raw in fh:
+            nbytes += len(raw)
+            f = orjson.loads(raw)
+            p = f["properties"]
+            # each line's zoom and index: the per-sheet ladder on its NATIVE unit (`ladder.sheet_ladder`), decided once
+            # by the placed-lines step from the whole sheet's levels
+            write(_to4326(LineString(f["geometry"]["coordinates"]), tf),
+                  {"item": p["item"], "depth_m": p["depth_m"], "index": 1 if p["index"] else None},
+                  max(int(p["minzoom"]), spec.minzoom))
     n = close()
-    print(f"  contour          <- bathymetry_contours {n:>6,}")
-    return {"contour": n}
+    print(f"  {'depth_contour':<16} <- {'placed_contours':<26} {n:>6,}  ({nbytes / 1e6:,.1f} MB placed)")
+    return {"depth_contour": n}
 
 
 # NO RANK TABLE HERE. `data/fetch_data.py` assigns the rank when it fetches the gazetteer

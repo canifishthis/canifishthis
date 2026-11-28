@@ -473,15 +473,26 @@ def test_two_sheets_coded_for_one_lake_may_both_end_on_it():
 # ---- the run's inputs -------------------------------------------------------------------------------------------------
 
 def test_an_empty_zips_folder_raises_before_anything_is_read(tmp_path, monkeypatch):
-    (tmp_path / "zips").mkdir()
+    """(T1268) the zips' home is SOURCE.bathymetry_vectors, every zip proved against the committed list: an empty
+    folder names its first missing zip and the fetch command; a missing folder says the zips are not here."""
     import pipeline.bathymetry.fetch_vectors as fv
     monkeypatch.setattr(fv, "sheets", lambda *_a: (_ for _ in ()).throw(AssertionError("read before the zips")))
     with pytest.raises(SystemExit) as e:
         refit_all.main(["--vec-dir", str(tmp_path)])
-    assert str(tmp_path / "zips") in str(e.value) and "fetch_vectors --out" in str(e.value)
+    assert str(tmp_path) in str(e.value) and "fetch_vectors" in str(e.value) and "missing" in str(e.value)
     with pytest.raises(SystemExit) as e:
-        refit_all.zip_names(tmp_path / "nothing", tmp_path)
-    assert "no vector zips at" in str(e.value)
+        refit_all.zip_names(tmp_path / "nothing")
+    assert "not on this machine" in str(e.value)
+
+
+def test_every_zip_reader_defaults_to_the_source_home():
+    """(T1268) no off-git default is left: refit_all, place_more and placed_contours read SOURCE.bathymetry_vectors."""
+    import inspect
+    from pipeline.bathymetry import place_more, placed_contours, vectors
+    from pipeline.common.curated import SOURCE
+    assert vectors.default_folder() == SOURCE.bathymetry_vectors
+    for mod in (refit_all, place_more, placed_contours, vectors):
+        assert "data-offgit" not in inspect.getsource(mod), mod.__name__
 
 
 # ---- determinism and the outputs --------------------------------------------------------------------------------------

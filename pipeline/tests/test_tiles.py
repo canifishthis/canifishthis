@@ -68,7 +68,9 @@ def test_area_ladder_is_derived_from_pixel_size():
 
 
 def test_contours_come_coarsest_first():
-    assert ladder.zoom_for_contour(10) < ladder.zoom_for_contour(5) < ladder.zoom_for_contour(3)
+    steps = ladder.sheet_ladder(range(1, 41))                  # a 1 m sheet to 40 m: index 10 m, middle 5 m
+    z = [ladder.depth_line_zoom(d, steps)[0] for d in (10, 5, 3)]
+    assert z[0] < z[1] < z[2]
 
 
 # ---------------------------------------------------------------- names
@@ -193,7 +195,7 @@ def test_no_layer_ships_an_attribute_nothing_declares():
 
 def test_water_layers_never_drop_features_to_fit_a_tile():
     """A stream that vanishes because its tile was crowded is a stream nobody can tap."""
-    for name in ("stream", "lake", "wetland", "contour"):
+    for name in ("stream", "lake", "wetland", "depth_contour"):
         assert BY_NAME[name].drop_densest is False
 
 
@@ -323,7 +325,7 @@ def test_every_waterbody_becomes_a_node_so_zone_rules_can_reach_it():
 TILE_INVENTORY = {
     "stream": ("section_id", "name", "ord", "sc", "pz"), "stream_name": ("name", "ord"), "lake": ("section_id", "name", "water", "area_m2", "lz"),
     "lake_name": ("name", "area_m2"), "under_lake": (),
-    "wetland": ("section_id", "name", "water", "lz"), "not_fishing_water": ("kind",), "contour": ("item", "depth_m", "index"),
+    "wetland": ("section_id", "name", "water", "lz"), "not_fishing_water": ("kind",), "depth_contour": ("item", "depth_m", "index"),
     "park": ("area_id", "name", "kind"), "eco_reserve": ("area_id", "name"), "sign_zone": ("area_id", "name", "cuts"),
     "wma": ("area_id", "name"), "indigenous_land": ("area_id", "name", "name_indigenous", "group"),
     "no_access": ("area_id", "name", "kind"), "watershed": (), "parcel": (),
@@ -521,6 +523,9 @@ def test_the_tiles_stage_key_is_geometry_only(tmp_path, monkeypatch):
     monkeypatch.setattr(B, "sources", lambda: {"gpkg": gpkg})
     obstacles = tmp_path / "fish_obstacles.gpkg"
     monkeypatch.setattr(B, "obstacles_source", lambda: obstacles)
+    vec = tmp_path / "bathymetry_vectors.sha256.json"
+    vec.write_text("{}")
+    monkeypatch.setattr(B, "depth_vectors_source", lambda: vec)
     # (T1171) the tool versions and the manifest are the test's own (test_build_key_holes.py pins the tools part)
     monkeypatch.setattr(B, "tool_versions", lambda: {"tippecanoe": "tippecanoe v0 (fake)"})
     monkeypatch.setattr(B, "MANIFEST", tmp_path / "build-manifest.json")
@@ -528,7 +533,9 @@ def test_the_tiles_stage_key_is_geometry_only(tmp_path, monkeypatch):
     obstacles.write_bytes(b"x")
     before = B.tiles_key(build)
     # (T1229) `area_files`: every file an areas def names by `file` (the sign zones), by content
-    assert set(before) == {"handles", "gpkg", "areas", "area_files", "code", "tools", "obstacles", "tidal_record"}
+    # (T1268) the frozen depth placings (curated, by content) and the vector zips' hash list
+    assert set(before) == {"handles", "gpkg", "areas", "area_files", "code", "tools", "obstacles", "tidal_record",
+                           "depth_placings", "depth_vectors"}
     (build / "registry.json").write_text('{"items": {"renamed": 1}}')
     assert B.tiles_key(build) == before
     # (T166 -> T678) a new tidal section in the atlas's record takes a piece off the map: the tiles rerun

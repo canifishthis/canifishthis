@@ -41,7 +41,7 @@ EXPORTERS = {
     "watershed": E.export_admin, "mu": E.export_admin, "region": E.export_admin,
     "sign_zone": E.export_admin,
     "parcel": E.export_admin,
-    "place": E.export_places, "contour": E.export_contours,
+    "place": E.export_places, "depth_contour": E.export_contours,
     "outside": E.export_outside,
     # The field lives in its own module because it is neither water nor administrative
     # geography — it is the ground a reading is a claim about. See tiles/basins.py.
