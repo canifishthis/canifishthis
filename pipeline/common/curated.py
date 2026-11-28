@@ -246,6 +246,10 @@ class Waters(_Tree):
     #: PROMOTED: name variants found in city layers, OSM, ECCC… that the owner accepted (auto rule or
     #: review mark); each name carries its real source. Written by `pipeline.tools.mined_names`.
     found_names: Annotated[FilePath, At("waters/found_names.json")]
+    #: AUTHORED (T1259): FWA blue lines that belong to another water than FWA's codes give them (the Kitsumkalum's
+    #: mouth braids): the atlas names them to that water (`graph.names.apply_line_owners`, the name-variant mechanism
+    #: with validation) and checks they landed there (`check_line_owners`).
+    line_owners: Annotated[FilePath, At("waters/line_owners.json")]
     #: AUTHORED: the owner's calls on single found-name candidates (accept / hold, a stored name, display),
     #: by candidate id — was `names.OWNER` in code. Read by `pipeline.regs.review.names`; an input to `mined_names`.
     found_name_calls: Annotated[FilePath, At("waters/found_name_calls.json")]

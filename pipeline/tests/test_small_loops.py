@@ -437,7 +437,7 @@ def test_every_keep_kind_is_offered_in_a_default_build(tmp_path, monkeypatch):
     ex, files, sets = B.loop_keep_inputs(b, g)
     assert {"named"} | set(files) | set(sets) == set(B.LOOP_KEEP_KINDS)
     assert B.LOOP_KEEP_KINDS == ("named", "a found name", "a curated cut", "a gauge", "a tidal limit",
-                                 "an owner call", "an owner call (pond)")
+                                 "an owner call", "an owner call (pond)", "a line owner")
     from pipeline.tests import under_test
     assert Path(ex) == Path(under_test.curated().waters.loop_exemptions)
 
@@ -461,7 +461,7 @@ def test_the_keeps_follow_the_build_flags(tmp_path, monkeypatch):
     g, _ = _river(creek=False)
     monkeypatch.setattr(flowing, "FOLD_CONFIRMED", False)
     _ex, files, sets = B.loop_keep_inputs(SimpleNamespace(_mined=[], splits=None), g)
-    assert set(files) == {"an owner call (pond)"} and set(sets) == {"a found name"}
+    assert set(files) == {"an owner call (pond)", "a line owner"} and set(sets) == {"a found name"}
     _ex, files, sets = B.loop_keep_inputs(SimpleNamespace(_mined=[], chains=[], matches_sha=None,
                                                           splits=[SimpleNamespace(anchor=SimpleNamespace(type="point"))]), g)
     assert "a gauge" not in files and "a tidal limit" in files

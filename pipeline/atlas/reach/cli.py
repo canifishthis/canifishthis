@@ -224,6 +224,9 @@ def main() -> int:
             print(_wr.lost_message(_diff))
     # T546 item 2: and on a row with rules whose scope does not resolve (its rules are held unresolved)
     ask(scope_gate, result.bindings)
+    # (T1259) and on an assigned line's old water reached as its new water's tributary (book rows and DFO places)
+    from pipeline.atlas.reach.build import line_owner_gate
+    ask(line_owner_gate, graph, registry, entries, result.bindings, rows if args.out else None)
     # T632 (owner 2026-11-11): EVERY unplaced piece — any reason, a rule's or a DFO place's — stops the run unless the
     # owner accepted it (`unplaced_piece_calls.json` `accepted`); the DFO places are placed only with --out
     ask(unplaced_gate, list(r.unplaced) + (dfo_salmon.unplaced(dfo_diags) if args.out else []),

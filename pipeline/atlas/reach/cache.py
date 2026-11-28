@@ -246,5 +246,11 @@ from __future__ import annotations
 #:     Arctic and Yukon drainage (basins 200, 800) stays "possible"; lakes stay out. Only the steelhead presence
 #:     table and its digest change; no rule binding, licensing placement or classify.py outcome changed. On top of
 #:     the DFO branch's 54.
-POLICY_VERSION = "55"
+#: 56: (T1259, review M1; the owner's "a stream is not a tributary of itself") AN ASSIGNED LINE NEVER LEADS INTO ITS
+#:     OLD WATER (`tributaries.AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER`): a line `waters/line_owners.json` gives
+#:     to another water keeps its old water's code, which is never one of the reach's codes; the walk carries it and
+#:     at every step never enters a piece of that code or above (RECEIVING_RIVER); `reach.build.line_owner_gate` refuses a run where
+#:     the old water still takes the new water's rule or DFO place through the walk. A guard: no binding changed on
+#:     the T1259 atlas (the Kitsumkalum braids are below the Skeena's order there). On top of 55.
+POLICY_VERSION = "56"
 

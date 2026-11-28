@@ -494,6 +494,7 @@ class _Build:
         self._t0 = self._prev = self._clock()
         self.timings: list[tuple[str, float]] = []
         self.splits = None              # curated + gauge split defs (gauge_cuts)
+        self._owners: list = []         # T1259: waters/line_owners.json (build_graph)
         self.splits_doc = None          # the splits.json document read now: its anchors are recorded (T133)
         self.matches_sha = None         # the gauge match file's digest, when the build cuts at gauges
         self.cuts_sha = None            # the digest of the gauge cut set made from it (T159)
@@ -634,7 +635,11 @@ def build_graph(b: _Build) -> None:
     from pipeline.atlas.graph.prune import nv_blks
     b._nv_all = (load_name_variants(b.args.name_variants or CURATED.waters.name_variants)
                  + _added_name_variant_entries(b.add_nv))
-    chains = resolve_names(build_blk_chains(fids, lake_kind), fids, curated_blks=nv_blks(b._nv_all))
+    # (T1259) the line owners: blue lines curation gives to another water — named, so the naming leaves them alone
+    from pipeline.atlas.graph.names import line_owner_blks, load_line_owners
+    b._owners = load_line_owners(CURATED.waters.line_owners)
+    chains = resolve_names(build_blk_chains(fids, lake_kind), fids,
+                           curated_blks=nv_blks(b._nv_all) | line_owner_blks(b._owners))
 
     print("building stream graph (lakes as nodes) ...")
     graph = build_stream_graph(chains, fids, lake_kind, lake_names, lake_wsc=lake_wsc)
@@ -686,6 +691,10 @@ def add_waters(b: _Build) -> None:
     if _nv_now:
         n = apply_name_variants(graph, _nv_now)
         print(f"  named {len(_nv_now)} variant entries before the prune -> {n} node attachments")
+    # (T1259) the line owners, at the same step and by the same mechanism (the water's own name tuple, its gnis)
+    from pipeline.atlas.graph.names import apply_line_owners
+    n = apply_line_owners(graph, b._owners, _nv_all)
+    print(f"  line owners: {len(b._owners)} entr(ies) -> {n} piece(s) named to their water")
     # A waterbody becomes a graph node because stream fids pass THROUGH it. Two kinds of named,
     # regulated water therefore never got one: ISOLATED waters with no stream connection at all
     # (Frazer Lake, Hall Road Pond, Kinglet Lake) and OVERLAID ones where a stream crosses the polygon
@@ -877,7 +886,7 @@ def small_loops_fact(args) -> dict:
 #: (T1242 review) EVERY KIND OF THING THAT KEEPS A CREEK-LESS LOOP in a default build (`loop_keep_inputs`); a test pins
 #: that each is offered, so dropping one fails. Loops that touch a lake / are part of a longer blue line: `small_loops`.
 LOOP_KEEP_KINDS = ("named", "a found name", "a curated cut", "a gauge", "a tidal limit", "an owner call",
-                   "an owner call (pond)")
+                   "an owner call (pond)", "a line owner")
 #: the anchor kinds the loop pass resolves with the cut placement's own resolver, before any loop goes: every kind but
 #: the B.C. border, whose crossings the border pass makes later (a border cut scoped to a blue line keeps that line)
 _LOOP_RESOLVED_ANCHORS = ("point", "gauge", "line", "confluence", "lake", "mu_boundary", "area_boundary")
@@ -890,7 +899,9 @@ def loop_keep_inputs(b: _Build, graph) -> tuple[Path, dict, dict]:
     files); the blue lines the build works out (cuts as placed, found names) are worked out all the same."""
     from pipeline.atlas.registry import flowing as _flowing
     given = getattr(b, "loop_keep_paths", None)          # (a test's own files; the keeps the build works out stand)
-    files: dict = {"an owner call (pond)": CURATED.waters.pond_calls}
+    files: dict = {"an owner call (pond)": CURATED.waters.pond_calls,
+                   # (T1259) a line given to another water is that water's: a loop pass never removes it
+                   "a line owner": CURATED.waters.line_owners}
     if _flowing.FOLD_CONFIRMED:
         files["an owner call"] = CURATED.waters.slough_calls
     # an owner-accepted found name is a LABEL, never a graph name (T224), so the prune cannot see it: its line is kept
@@ -1849,6 +1860,27 @@ def build_registry(b: _Build) -> None:
     # hand, so an FWA-unnamed water a regulation names still becomes an item. See
     # `pipeline.atlas.registry.build.pinned_by_override`.
     registry, _info = water_registry(b, graph)
+    # (T1259) the assigned lines bring their geometry, not their old water's ids (`scrub_line_owner_refs`); every line
+    # the line owners assign landed in its water's item (none pruned, none left behind), no id answers to two waters.
+    # (review L1) The scrub runs AFTER `water_registry`'s inner passes (flowing folds, lake parts, MU sets): none of
+    # them reads `ref_ids` to decide anything (they group by item id and section), and the matcher, the only reader
+    # that resolves a ref to a water (`build_id_index`), reads the registry as written here.
+    from pipeline.atlas.graph.names import (check_line_owner_inflows, check_line_owners, inflows_to_assigned_lines,
+                                            scrub_line_owner_refs, unnamed_neighbours_of_assigned_lines)
+    _dropped = scrub_line_owner_refs(registry, b._owners, graph)
+    print(f"  line owners: {len(_dropped)} inherited id(s) kept off their new water: {', '.join(_dropped) or '-'}")
+    check_line_owners(registry, b._owners, graph)
+    # (review M2) water flowing into an assigned line becomes its new water's tributary: named, every build
+    _in = inflows_to_assigned_lines(graph)
+    print(f"  line owners: {len(_in)} blue line(s) flow into an assigned line (their new water's tributaries): "
+          + (", ".join(f"{a} ({how}, on {b_})" for a, b_, how in _in) or "-"))
+    # (re-review 2) and they must be exactly the ones the owner accepted (each entry's `inflows`): else the build stops
+    check_line_owner_inflows(graph, b._owners)
+    # (review L2) a same-code channel beside an assigned line is named by its neighbours (`follow_connections`): what
+    # each ended up called, every build
+    _nb = unnamed_neighbours_of_assigned_lines(graph)
+    print(f"  line owners: {len(_nb)} same-code line(s) beside an assigned line: "
+          + (", ".join(f"{a} ({nm})" for a, nm in _nb) or "-"))
     print(f"  registry: {_info['named']} named items")
     print(f"  + {_info['lakes']} isolated named lake item(s) + {_info['wetlands']} named wetland item(s)")
     print(f"  + {_info['curated_wbk']} curated-only wbk item(s) (named via name_variants)")
