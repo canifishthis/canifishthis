@@ -85,39 +85,21 @@ def test_the_recorded_csv_is_written_with_the_centres_zone():
     assert (s["mid"][:2], s["mid"][-1]) == ([0.205, 0.207], 0.226)
 
 
-def test_a_horizon_reads_the_step_at_that_instant_not_eight_hours_off():
-    """19:00 UTC on 10-22 is 11:00 at the Centre: the 11:00 step answers, not the 19:00 one.
-    Mutation: `instant` reading a naive stamp as UTC -> returns the 19:00 step (row 19) instead of row 11."""
+def test_a_naive_stamp_is_a_centre_wall_clock_not_utc():
+    """19:00 UTC on 10-22 is 11:00 at the Centre; a stamp written naive (a station file from before T126) is the Centre's
+    wall clock. Mutation: `instant` reading a naive stamp as UTC -> the naive 11:00 stamp equals 19:00 UTC, not 11:00."""
     s = F.parse_series(recorded_csv(), "CLEVER")
-    rows = [ln.split(",") for ln in recorded_csv().splitlines() if ln.startswith("2026-")]
-    at11 = next(float(r[2]) for r in rows if (r[0], r[1]) == ("2026-10-22", "11"))
-    at19 = next(float(r[2]) for r in rows if (r[0], r[1]) == ("2026-10-22", "19"))
-    assert at11 != at19                                             # the fixture can tell the two apart
-    assert pub.forecast_at(s, datetime(2026, 10, 22, 19, tzinfo=timezone.utc), "discharge") == at11
-    # and a stamp written naive (a station file from before T126) is read the same way
-    naive = {**s, "at": [a.removesuffix("-08:00") for a in s["at"]]}
-    assert pub.forecast_at(naive, datetime(2026, 10, 22, 19, tzinfo=timezone.utc), "discharge") == at11
-
-
-@pytest.mark.smoke  # T667 D6: quicker than the file's first test
-def test_a_daily_step_answers_for_its_whole_centre_day():
-    """ELF's steps are DAYS. 15:30 at the Centre on 10-22 is 10-22's value — not 10-23's, whose midnight is nearer.
-    Mutation: drop the `is_day` branch in `forecast_at` -> 23:30Z reads 10-23 (11.0)."""
-    s = {"at": ["2026-10-21", "2026-10-22", "2026-10-23"], "mid": [10.0, 20.0, 11.0], "level_mid": [None] * 3}
-    got = [pub.forecast_at(s, datetime(2026, 10, d, h, m, tzinfo=timezone.utc), "discharge")
-           for d, h, m in ((22, 8, 0), (22, 23, 30), (23, 7, 59), (23, 8, 0), (24, 8, 0))]
-    assert got == [20.0, 20.0, 20.0, 11.0, None]
+    naive = [a.removesuffix("-08:00") for a in s["at"]]
+    assert [F.instant(a) for a in naive] == [F.instant(a) for a in s["at"]]
+    assert F.instant("2026-10-22T11:00:00") == datetime(2026, 10, 22, 19, tzinfo=timezone.utc)
 
 
 def test_a_daily_run_stamped_at_midnight_is_a_day_too():
     """COFFEE writes its daily steps as midnights ("2026-10-22T00:00:00", `step: "1d"`). The change measure always read
-    them as whole days; the horizons read them as midnight instants, so 15:30 at the Centre took tomorrow's midnight.
-    One answer now (`forecast.step_day`). Mutation: `step_day` ignoring `step` (bare days only) -> 23:30Z reads 11.0."""
+    them as whole days; the horizons once read them as midnight instants. One answer (`forecast.step_day`).
+    Mutation: `step_day` ignoring `step` (bare days only) -> the midnight stamps name no day."""
     s = {"at": ["2026-10-21T00:00:00-08:00", "2026-10-22T00:00:00-08:00", "2026-10-23T00:00:00-08:00"],
          "mid": [10.0, 20.0, 11.0], "level_mid": [None] * 3, "step": "1d"}
-    got = [pub.forecast_at(s, datetime(2026, 10, d, h, m, tzinfo=timezone.utc), "discharge")
-           for d, h, m in ((22, 8, 0), (22, 23, 30), (23, 7, 59), (23, 8, 0), (24, 8, 0))]
-    assert got == [20.0, 20.0, 20.0, 11.0, None]
     assert [F.step_day(s, a) for a in s["at"]] == ["2026-10-21", "2026-10-22", "2026-10-23"]
     assert [F.step_day({"step": "1h"}, "2026-10-22T05:00:00-08:00"), F.step_day({"step": "1h"}, "2026-10-22"),
             F.step_day(None, "2026-10-22T13:00:00Z")] == [None, "2026-10-22", None]

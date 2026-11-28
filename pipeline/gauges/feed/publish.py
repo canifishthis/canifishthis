@@ -55,14 +55,13 @@ from pathlib import Path
 from pipeline.common.curated import CURATED, REPO_ROOT, SOURCE
 from pipeline.common.feed_formats import FEED_FORMATS, FEED_MIN_APP
 from pipeline.gauges.feed.climatology import PCTILES
-from pipeline.gauges.feed.change import combine_day as _combine_day, forecast_days, gauge_scale as _gauge_scale
+from pipeline.gauges.feed.change import day_picks, forecast_days
 from pipeline.gauges.feed.change import model_name as _model_name
 from pipeline.gauges.feed.change import stale as _stale_run, station_change
 from pipeline.gauges.feed import skill as _skill
 from pipeline.gauges.feed.forecast import ATTRIBUTION as FORECAST_ATTRIBUTION
 from pipeline.gauges.feed.forecast import CENTRE_ZONE as _CENTRE_ZONE
 from pipeline.gauges.feed.forecast import instant as _instant
-from pipeline.gauges.feed.forecast import step_day as _step_day
 from pipeline.gauges.liveness import STATION_LIST, listed_stations, roster_drift, stations_to_ask  # noqa: F401
 
 BASE = "https://dd.weather.gc.ca/today/hydrometric/csv/BC"
@@ -404,69 +403,12 @@ def age_gate(entry: dict, now: datetime) -> dict:
     out.pop("level", None)
     return out
 
-# How far from the requested instant a model step may sit and still answer for it. CLEVER
-# steps hourly and ELF daily, so a day-grained model needs most of a day of slack; more than
-# this and the value is about a different day.
-FORECAST_TOLERANCE_H = 18.0
-
 # WHICH MODELS ANSWER A DAY is not decided here: `change.combine_day` is the one combination (T177), asked by the
 # horizons below, by every ranked day (`change.forecast_days`) and by the Change. The FLOOD models that answer the
 # quantity — CLEVER, the short-range model calibrated against the observed hydrograph, and COFFEE (a peak model, put on
 # the gauge's scale first: `change.gauge_scale`) — joined where both reach the day; else the thirty-day low-water model,
 # which is the fallback, not the peer. +10 sits at CLEVER's very end and is answered by CLEVER only while the run is
 # fresh enough to reach it.
-
-
-def forecast_at(series: dict | None, when: datetime,
-                quantity: str) -> float | None:
-    """The model's value NEAREST `when`, or None if no step is close enough.
-
-    NEAREST AND NOT INTERPOLATED. A forecast is a sequence of the model's own steps, and
-    a value between two of them is a number no model produced — which matters here because
-    the result is then ranked against a record and presented as a percentile. Reporting the
-    step the model actually published, or nothing, keeps every number on the map traceable
-    to a run.
-
-    Returns None past the end of the horizon rather than the last value, which would report
-    day thirty's forecast as day five's.
-
-    THE CENTRE'S CLOCK (T126): every stamp is read by `forecast.instant` — a naive stamp is a PST wall clock, never
-    UTC (read as UTC, every horizon sampled the step eight hours off). A step stamped with a bare DAY (ELF) is that
-    whole Centre day: it answers for `when` exactly when `when` falls on it, never the next day's midnight because it
-    happened to be nearer.
-
-    HALF A STEP OF SLACK, capped at FORECAST_TOLERANCE_H. Inside a run the nearest step is
-    never more than half a step away, so anything further is past the run's end. This
-    matters at +10 days, which sits at CLEVER's last hour: a flat 18 h of slack let an hourly
-    run that stopped six hours short answer for day ten with its last value — day nine's
-    water under day ten's name. A daily model (ELF) keeps its twelve hours.
-    """
-    if not series:
-        return None
-    key = "level_mid" if quantity == "level" else "mid"
-    vals = series.get(key) or []
-    ats = series.get("at") or []
-    times = sorted(t for t in (_instant(a) for a in ats) if t is not None)
-    gaps = sorted(g for g in ((b - a).total_seconds() / 3600.0
-                              for a, b in zip(times, times[1:])) if g > 0)
-    tol = (min(FORECAST_TOLERANCE_H, gaps[len(gaps) // 2] / 2.0) if gaps
-           else FORECAST_TOLERANCE_H)
-    day = when.astimezone(_CENTRE_ZONE).date().isoformat()
-    best: tuple[float, float] | None = None                 # (hours off, value)
-    for at, v in zip(ats, vals):
-        if v is None:
-            continue
-        if (named := _step_day(series, at)) is not None:
-            if named == day:
-                return float(v)                             # the day itself: nothing nearer exists
-            continue
-        t = _instant(at)
-        if t is None:
-            continue
-        off = abs((t - when).total_seconds()) / 3600.0
-        if off <= tol and (best is None or off < best[0]):
-            best = (off, float(v))
-    return None if best is None else best[1]
 
 
 def forecast_percentiles(runs: dict | None, envelopes: dict | None,
@@ -502,25 +444,18 @@ def forecast_percentiles(runs: dict | None, envelopes: dict | None,
     if not runs or not envelopes:
         return {}
     out: dict[str, dict] = {}
+    # THE DAY'S MEAN, NOT ONE STEP (T1278): day N is `change.day_picks`' Centre day N after today, the same value as the
+    # ranked days (`forecast_days`), ranked against the envelope at noon UTC of that day (the publisher's `rank_day`).
+    picks = {q: day_picks(runs, now, (observed or {}).get(q), q) for q in ("discharge", "level")}
     for days in HORIZONS:
-        when = now + timedelta(days=days)
         got: dict = {}
         by: dict[str, str] = {}
         for q in ("discharge", "level"):
-            values: dict[str, float | None] = {}
-            for model, run in sorted(runs.items()):
-                series = (run or {}).get("series")
-                # A RUN PAST `change.due_by` IS NOT TODAY'S FORECAST (T52): the feed carried ELF runs from 09-24 and
-                # 10-14 that still answered +3/+5/+10 at 08CG001, a week after the Centre had stopped issuing them.
-                if not series or _stale_run(run, now):
-                    continue
-                # a peak model (COFFEE) on the gauge's scale first; None: it cannot be ranked (`change.gauge_scale`)
-                s = _gauge_scale(model, run, now, (observed or {}).get(q), q)
-                v = forecast_at(series, when, q)
-                values[model] = None if v is None or s is None else v * s
-            # WHICH MODELS ANSWER THIS DAY, for THIS quantity, and how they join: `change.combine_day` (T177)
-            pick = _combine_day(values)
-            p = percentile_of(pick[1], band_for(envelopes.get(q), when)) if pick is not None else None
+            first, day_list = picks[q]
+            pick = day_list[days - 1]
+            d = first + timedelta(days=days - 1)
+            p = (percentile_of(pick[1], band_for(envelopes.get(q), datetime(d.year, d.month, d.day, 12, tzinfo=timezone.utc)))
+                 if pick is not None else None)
             if pick is not None and p is not None:
                 by[q], got[q] = _model_name(pick[0]), p
         if got:

@@ -49,7 +49,7 @@ from pathlib import Path
 # first hours sit a median 0.88% from the gauge, against 0.99% at UTC-7 and 1.78% read as UTC. Read as UTC, every
 # +1/+3/+5/+10 sampled the step eight hours off.
 #
-# ONE READING OF THE CLOCK: `instant` below. The publisher's horizons (`publish.forecast_at`), its staleness and the
+# ONE READING OF THE CLOCK: `instant` below. The publisher's horizons (`change.day_picks`), its staleness and the
 # expected change (`change.py`) all ask it; none keeps its own zone. And the stamps are WRITTEN zoned at the source
 # (`series`), so the app's `Date.parse` reads the same instant instead of the device's own clock.
 CENTRE_UTC_OFFSET_H = -8
@@ -68,7 +68,7 @@ def step_day(series: dict | None, at: object) -> str | None:
 
     THE ONE ANSWER TO "is this step a day?" (T126 adversarial review). A step is a day when its stamp is a bare day
     (ELF) or when its series says it is daily (`step: "1d"`: COFFEE writes each day as a midnight, "…T00:00:00").
-    `publish.forecast_at` asked only the first and `change.py` both, so a COFFEE step was a whole day to the change
+    the horizons' old `forecast_at` asked only the first and `change.py` both, so a COFFEE step was a whole day to the change
     measure and a midnight instant to the horizons. Both ask this now.
     """
     if not (is_day(at) or (series or {}).get("step") == "1d"):

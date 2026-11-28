@@ -12,8 +12,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from pipeline.gauges.feed.change import FLOOD_MODELS
-from pipeline.gauges.feed.publish import (HORIZONS, forecast_at,
-                                          forecast_percentiles)
+from pipeline.gauges.feed.publish import HORIZONS, forecast_percentiles
 
 NOW = datetime(2026, 9, 4, 12, 0, tzinfo=timezone.utc)
 
@@ -48,7 +47,7 @@ def test_no_envelope_says_nothing():
 
 
 def test_every_horizon_is_answered_when_the_run_reaches():
-    runs = {"CLEVER": {"series": hourly(NOW, 240, lambda h: 11.0)}}
+    runs = {"CLEVER": {"series": hourly(NOW, 264, lambda h: 11.0)}}   # (T1278) a day needs its own steps: +10 ends day 11's morning
     got = forecast_percentiles(runs, {"discharge": FLAT}, NOW)
     assert sorted(int(k) for k in got) == list(HORIZONS)
     for h in got.values():
@@ -60,7 +59,8 @@ def test_a_horizon_past_the_run_is_absent_not_flat():
     """Returning the last value would report day thirty's forecast as day five's."""
     runs = {"CLEVER": {"series": hourly(NOW, 48, lambda h: 11.0)}}   # two days only
     got = forecast_percentiles(runs, {"discharge": FLAT}, NOW)
-    assert sorted(int(k) for k in got) == [1, 2]                    # T375: every day; none past the run
+    # T375: every day; none past the run. (T1278) +2 is a morning of the run (one step of its day), not a day
+    assert sorted(int(k) for k in got) == [1]
 
 
 def test_it_ranks_against_the_FUTURE_day_not_today():
@@ -131,22 +131,6 @@ def test_each_quantity_takes_the_first_model_that_answers_IT():
         "discharge": pytest.approx(0.05), "model": "CLEVER"}
 
 
-def test_forecast_at_takes_the_nearest_step_and_not_an_interpolation():
-    """A value between two steps is a number no model produced — and it would then be
-    ranked and shown as a percentile, traceable to no run."""
-    s = hourly(NOW, 240, lambda h: float(h))
-    # +1 day = hour 24, which is a published step.
-    assert forecast_at(s, NOW + timedelta(days=1), "discharge") == pytest.approx(24.0)
-    # Between steps it takes the nearer one, never the average.
-    got = forecast_at(s, NOW + timedelta(hours=27), "discharge")
-    assert got in (24.0, 30.0)
-
-
-def test_forecast_at_refuses_a_step_that_is_about_a_different_day():
-    s = hourly(NOW, 24, lambda h: 11.0)
-    assert forecast_at(s, NOW + timedelta(days=5), "discharge") is None
-
-
 def test_a_run_of_all_nulls_answers_nothing():
     runs = {"CLEVER": {"series": {"at": [NOW.isoformat()], "mid": [None],
                                   "level_mid": [None]}}}
@@ -187,23 +171,16 @@ def test_an_hourly_run_that_stops_hours_short_of_ten_days_does_not_answer_for_it
     early the next morning asks for +10 a few hours past that. The flat 18 h slack let the
     run's last hour stand in for day ten. Half a step of slack refuses it, and ELF answers."""
     clever = hourly(NOW, 234, lambda h: 5.0)                    # last step 6 h short of +10
-    assert forecast_at(clever, NOW + timedelta(days=10), "discharge") is None
     runs = {"CLEVER": {"series": clever}, "ELF": {"series": daily(NOW, 30, 18.0)}}
     got = forecast_percentiles(runs, {"discharge": FLAT}, NOW)
     assert got["10"]["model"] == "ELF"
     assert got["5"]["model"] == "CLEVER"
 
 
-def test_a_daily_run_keeps_half_a_day_of_slack():
-    """ELF's steps are dates (midnight). Any instant inside its run is within 12 h of one."""
-    s = daily(NOW, 30, 11.0)
-    assert forecast_at(s, NOW + timedelta(days=10), "discharge") == pytest.approx(11.0)
-
-
 def test_ten_days_is_absent_not_the_five_day_value_when_no_run_reaches():
     runs = {"CLEVER": {"series": hourly(NOW, 144, lambda h: 11.0)}}  # six days, no ELF
     got = forecast_percentiles(runs, {"discharge": FLAT}, NOW)
-    assert sorted(got, key=int) == ["1", "2", "3", "4", "5", "6"]
+    assert sorted(got, key=int) == ["1", "2", "3", "4", "5"]    # (T1278) +6 is a morning of the run, not a day
 
 
 def test_ten_days_ranks_against_the_envelope_ten_days_out():
@@ -242,4 +219,25 @@ def test_the_index_carries_ten_days_ahead_beside_the_others(tmp_path, monkeypatc
 def test_the_index_leaves_ten_days_out_when_no_run_reaches(tmp_path, monkeypatch):
     got = _publish_one(tmp_path, monkeypatch,
                        lambda now: {"CLEVER": {"series": hourly(now, 144, lambda h: 11.0)}})
-    assert sorted(got["ahead"], key=int) == ["1", "2", "3", "4", "5", "6"]
+    assert sorted(got["ahead"], key=int) == ["1", "2", "3", "4", "5"]
+
+
+def test_a_day_is_its_mean_not_the_step_at_the_clock_hour_and_is_the_ranked_days_value():
+    """(T1278) A rain pulse: 4 steps a day, 40 in the first and 2 in the rest, repeating. The step nearest the run's clock
+    hour read 40 or 2 by the hour it was run at; the day's mean is 11.5 whatever the hour, and is `aheadDays`' value."""
+    from pipeline.gauges.feed.change import forecast_days
+    from pipeline.gauges.feed.publish import band_for, percentile_of
+    start = datetime(2026, 9, 4, 8, 0, tzinfo=timezone.utc)                 # 00:00 on the Centre's clock
+    steps = [(start + timedelta(hours=6 * i)) for i in range(4 * 12)]
+    series = {"at": [t.isoformat() for t in steps], "mid": [40.0 if i % 4 == 0 else 2.0 for i in range(len(steps))],
+              "level_mid": [None] * len(steps)}
+    runs = {"CLEVER": {"series": series}}
+    ref = forecast_percentiles(runs, {"discharge": FLAT}, start + timedelta(minutes=5))
+    assert ref["3"]["discharge"] == pytest.approx(percentile_of(11.5, FLAT["0"]))
+    for clock in (start + timedelta(hours=7, minutes=5), start + timedelta(hours=15, minutes=5)):
+        assert forecast_percentiles(runs, {"discharge": FLAT}, clock) == ref
+    rank = lambda v, d: percentile_of(v, band_for(FLAT, datetime(d.year, d.month, d.day, 12, tzinfo=timezone.utc)))
+    days = forecast_days(runs, start + timedelta(minutes=5), None, rank)
+    for n in range(1, 11):
+        mine = ref[str(n)]["discharge"] if str(n) in ref else None
+        assert mine == (pytest.approx(days["discharge"][n - 1], abs=1e-4) if mine is not None else days["discharge"][n - 1])

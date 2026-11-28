@@ -74,8 +74,8 @@ def test_no_second_copy_of_the_combination():
     join = body("combine_day")
     assert "FLOOD_WEIGHTS" in join and "math.exp" in join and "LOW_WATER_MODEL" in join
     assert src.count("math.exp(") == 1 and pub_src.count("math.exp(") == 0
-    assert "combine_day(" in body("change_source") and "combine_day(" in body("forecast_days")
-    assert "_combine_day(" in body("forecast_percentiles", pub_src)
+    assert "combine_day(" in body("change_source") and "combine_day(" in body("day_picks")
+    assert "day_picks(" in body("forecast_days") and "day_picks(" in body("forecast_percentiles", pub_src)
     assert "combine_day(" in body("score", sk_src) and "math.exp(" not in sk_src
     assert "day_model" not in src.replace(join, "") and "day_model" not in pub_src
     assert [n for n in ('"CLEVER"', '"COFFEE"', '"ELF"', "FLOOD_MODELS", "FLOOD_WEIGHTS", "LOW_WATER_MODEL", "lowWater")
