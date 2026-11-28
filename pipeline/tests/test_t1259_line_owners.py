@@ -140,3 +140,34 @@ def test_the_braids_carry_the_waters_own_name_so_its_page_keeps_the_official_sou
 def test_a_name_the_water_does_not_go_by_is_refused():
     with pytest.raises(ValueError, match="goes by no name 'Kalum River'"):
         N.apply_line_owners(_graph(), _owners(name="Kalum River"))
+
+
+def _registry(g):
+    """The registry's grouping and ids (`registry.build.item_id`, `_ref_ids`) without its data reads (the drainage
+    areas need the FWA GeoPackage)."""
+    from collections import defaultdict
+    from pipeline.atlas.registry.build import _ref_ids
+    from pipeline.common.models import RegistryItem
+    groups = defaultdict(list)
+    for nid, n in g.nodes.items():
+        groups[_item_of(g, nid)].append(n)
+    return {i: RegistryItem(id=i, name=i, kind="stream", section_ids=tuple(n.node_id for n in ns), ref_ids=_ref_ids(ns))
+            for i, ns in groups.items()}
+
+
+def test_the_lines_bring_their_geometry_not_the_old_waters_ids():
+    # (T1259, coordinator 2026-11-28) the measured B build gave the Kitsumkalum the Skeena's gnis:2936 and its wsc root
+    # through the braids' inherited side-channel name: resolved to the Skeena only by first-writer order. The new
+    # water's ids are its baseline ids plus the lines' own blk ids; the old water's lose only those blk ids
+    base = _registry(_graph())
+    g = _graph()
+    N.apply_line_owners(g, _owners())
+    reg = _registry(g)
+    assert "gnis:2936" in reg[f"gnis:{KI}"].ref_ids                          # what the registry alone gives
+    with pytest.raises(ValueError, match="both answer to"):
+        N.check_line_owners(reg, _owners(), g)                               # refused before the scrub
+    assert N.scrub_line_owner_refs(reg, _owners(), g) == [f"gnis:{KI} gnis:{SK}", f"gnis:{KI} wsc:{WSC_SK}"]
+    blks = {"blk:360222215", "blk:360222216"}
+    assert set(reg[f"gnis:{KI}"].ref_ids) == set(base[f"gnis:{KI}"].ref_ids) | blks
+    assert set(reg[f"gnis:{SK}"].ref_ids) == set(base[f"gnis:{SK}"].ref_ids) - blks
+    N.check_line_owners(reg, _owners(), g)                                   # and then it passes

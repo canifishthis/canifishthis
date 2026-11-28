@@ -333,6 +333,28 @@ def apply_line_owners(graph: StreamGraph, owners: list[dict], name_variants: lis
     return named
 
 
+def scrub_line_owner_refs(registry: dict, owners: list[dict], graph: StreamGraph) -> list[str]:
+    """(T1259) An assigned line brings its GEOMETRY to its new water, not its old water's identity: the ids only its
+    pieces gave the new water's item (the old water's gnis on the inherited side-channel name, the basin's wsc root,
+    `registry.build._ref_ids`) are taken off that item's `ref_ids`; the lines' own `blk:` ids move with them. A ref the
+    water's other sections give it is kept. Run after the registry, before `check_line_owners`. Returns the refs
+    dropped, as "<water> <ref>"."""
+    from pipeline.atlas.registry.build import _ref_ids
+    dropped: list[str] = []
+    for e in owners or ():
+        it = registry.get(e["water"])
+        if it is None:
+            raise ValueError(f"line owners: {e['water']} ({e['name']}) has no registry item")
+        blks = {str(b) for b in e["blks"]}
+        mine = [graph.nodes[s] for s in it.section_ids if s in graph.nodes and str(graph.nodes[s].blk) in blks]
+        rest = [graph.nodes[s] for s in it.section_ids if s in graph.nodes and str(graph.nodes[s].blk) not in blks]
+        gone = (set(_ref_ids(mine)) - {f"blk:{b}" for b in blks}) - set(_ref_ids(rest))
+        if gone:
+            registry[e["water"]] = replace(it, ref_ids=tuple(r for r in it.ref_ids if r not in gone))
+            dropped += [f"{e['water']} {r}" for r in sorted(gone)]
+    return dropped
+
+
 def check_line_owners(registry: dict, owners: list[dict], graph: StreamGraph) -> None:
     """(T1259) After the registry: every piece of an assigned line is in its new water's item, never the old one's, and
     none was removed on the way (a prune or a loop pass). A line that did not land stops the build, by name."""
@@ -349,6 +371,15 @@ def check_line_owners(registry: dict, owners: list[dict], graph: StreamGraph) ->
             if stray:
                 raise ValueError(f"line owners: blue line {b}: {len(stray)} piece(s) not in {e['water']}'s item "
                                  f"({e['name']}) after the registry, e.g. {stray[0]}")
+        # no id answers to two waters through an assignment: the old water's ids stay its own
+        from pipeline.atlas.registry.build import _ref_ids
+        brought = set(_ref_ids([graph.nodes[s] for s in have if s in graph.nodes
+                                and str(graph.nodes[s].blk) in {str(b) for b in e["blks"]}]))
+        both = sorted(r for r in brought & set(getattr(it, "ref_ids", ()) or ())
+                      if any(r in (getattr(o, "ref_ids", ()) or ()) for k, o in registry.items() if k != e["water"]))
+        if both:
+            raise ValueError(f"line owners: {e['water']} ({e['name']}) and another water both answer to {both} "
+                             f"through the assigned lines (`scrub_line_owner_refs` runs first)")
 
 
 _REACH_MIN_OVERLAP_M = 1.0   # a reach must overlap a section by more than this to name it (proximity)

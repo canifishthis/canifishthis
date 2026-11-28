@@ -1730,8 +1730,11 @@ def build_registry(b: _Build) -> None:
     # hand, so an FWA-unnamed water a regulation names still becomes an item. See
     # `pipeline.atlas.registry.build.pinned_by_override`.
     registry, _info = water_registry(b, graph)
-    # (T1259) every line the line owners assign landed in its water's item (none pruned, none left behind)
-    from pipeline.atlas.graph.names import check_line_owners
+    # (T1259) the assigned lines bring their geometry, not their old water's ids (`scrub_line_owner_refs`); every line
+    # the line owners assign landed in its water's item (none pruned, none left behind), no id answers to two waters
+    from pipeline.atlas.graph.names import check_line_owners, scrub_line_owner_refs
+    _dropped = scrub_line_owner_refs(registry, b._owners, graph)
+    print(f"  line owners: {len(_dropped)} inherited id(s) kept off their new water: {', '.join(_dropped) or '-'}")
     check_line_owners(registry, b._owners, graph)
     print(f"  registry: {_info['named']} named items")
     print(f"  + {_info['lakes']} isolated named lake item(s) + {_info['wetlands']} named wetland item(s)")
