@@ -84,28 +84,47 @@ def zoom_for_area(area_m2: float | None, floor: int = MIN_ZOOM,
     return max(MAX_ZOOM, floor)
 
 
-#: (T1268) THE DEPTH-LINE LADDER, decided on the sheet's NATIVE unit (the value printed on the chart), never on the
-#: converted metres: {units: (index every, z12 every)}. An index line (labelled) is drawn from z11, a z12 line from z12,
-#: every other line from z13. Metres: 10 m / 5 m. Feet: 100 ft / 50 ft, measured 2026-11-28 on the 322 frozen lakes so a
-#: feet lake is about as dense per zoom as a metre lake (median share of a lake's lines at z11 / up to z12: metre sheets
-#: 0.05 / 0.11; feet 100/50 0.07 / 0.12; feet 50/25 0.12 / 0.13; feet 50/10 0.12 / 1.0). The converted 10 ft = 3.048 m is
-#: a multiple of nothing, so a metres rule on feet sheets drew no line below z13 (Charlotte Lake: 0 at z12).
-DEPTH_LADDER = {"metres": (10.0, 5.0), "feet": (100.0, 50.0)}
+#: (T1268) THE DEPTH-LINE LADDER, decided PER SHEET from the sheet's own levels in its NATIVE unit (the values printed on
+#: the chart; never the converted metres, where 10 ft = 3.048 m is a multiple of nothing). The index step is the
+#: smallest "nice" step (`NICE_STEPS`: 1, 2, 5 x a power of ten) that leaves the sheet between `INDEX_LINES_MIN` and
+#: `INDEX_LINES_MAX` index levels; the middle step is the next finer nice step. Index lines (labelled) from z11, middle
+#: from z12, every other line from z13. A sheet with one level: that line is its index. So every accepted lake has at
+#: least one index line at z11, and a deep lake is not flooded. (Fixed 10 m / 100 ft steps, review of 2026-11-28: 111
+#: of 322 lakes had no index line, 18 drew nothing until z13.)
+NICE_STEPS = tuple(round(m * 10 ** k, 6) for k in range(-1, 4) for m in (1, 2, 5))
+INDEX_LINES_MIN = 2
+INDEX_LINES_MAX = 6
 
 
-def depth_line_zoom(native: float, units: str, floor: int = 11) -> tuple[int, bool]:
-    """(minzoom, index) of one depth line from its NATIVE value and its sheet's units (`DEPTH_LADDER`). Raises on a
-    unit the ladder does not know (a line is never drawn on a guessed unit)."""
-    if units not in DEPTH_LADDER:
-        raise ValueError(f"depth line in {units!r}: the ladder knows {sorted(DEPTH_LADDER)}")
-    every_index, every_mid = DEPTH_LADDER[units]
+def _on(value: float, step: float) -> bool:
+    return value > 0 and abs(value / step - round(value / step)) < 1e-6
+
+
+def sheet_ladder(levels) -> tuple[float, float]:
+    """(index step, middle step) for one sheet's depth levels (native unit). Raises on a sheet with no level."""
+    lv = sorted({abs(float(v)) for v in levels if v and abs(float(v)) > 0})
+    if not lv:
+        raise ValueError("a sheet with no depth level has no ladder")
+    if len(lv) == 1:
+        return lv[0], lv[0]                       # its one line is its index
+    fallback = None
+    for i, step in enumerate(NICE_STEPS):
+        n = sum(1 for v in lv if _on(v, step))
+        if INDEX_LINES_MIN <= n <= INDEX_LINES_MAX:
+            return step, NICE_STEPS[i - 1] if i else step
+        if fallback is None and 1 <= n < INDEX_LINES_MIN:
+            fallback = (step, NICE_STEPS[i - 1] if i else step)
+    if fallback is None:
+        raise ValueError(f"levels {lv[:8]}...: no nice step leaves an index line")
+    return fallback                               # the levels jump past the band: the first step with one index line
+
+
+def depth_line_zoom(native: float, ladder_steps: tuple[float, float], floor: int = 11) -> tuple[int, bool]:
+    """(minzoom, index) of one depth line from its NATIVE value and its sheet's (index step, middle step)."""
+    index_step, mid_step = ladder_steps
     d = abs(float(native))
-
-    def on(step):
-        return d > 0 and abs(d / step - round(d / step)) < 1e-9
-
-    if on(every_index):
+    if _on(d, index_step):
         return max(floor, 11), True
-    if on(every_mid):
+    if _on(d, mid_step):
         return max(floor, 12), False
     return max(floor, 13), False

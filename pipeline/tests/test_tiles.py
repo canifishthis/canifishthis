@@ -68,7 +68,8 @@ def test_area_ladder_is_derived_from_pixel_size():
 
 
 def test_contours_come_coarsest_first():
-    z = [ladder.depth_line_zoom(d, "metres")[0] for d in (10, 5, 3)]
+    steps = ladder.sheet_ladder(range(1, 41))                  # a 1 m sheet to 40 m: index 10 m, middle 5 m
+    z = [ladder.depth_line_zoom(d, steps)[0] for d in (10, 5, 3)]
     assert z[0] < z[1] < z[2]
 
 

@@ -203,7 +203,8 @@ WATER: tuple[LayerSpec, ...] = (
         why="(T1268) The lake depth lines of the Province's 2001 vector depth sheets, ONLY those whose placing is "
             "frozen in data/curated/bathymetry/placings.json (`pipeline.bathymetry.placed_contours`): placed by "
             "the frozen pose, cut at the FWA shoreline. `item` is the lake's item id, `depth_m` metres (feet sheets "
-            "converted), `index` 1 on every 10 m (absent otherwise). A NEW name on purpose: the 0.9.0 apps draw "
+            "converted, exact), `index` 1 on the sheet's index lines (absent otherwise), chosen per sheet from its own levels "
+            "in its native unit (`ladder.sheet_ladder`); each line's minzoom likewise. A NEW name on purpose: the 0.9.0 apps draw "
             "source layer `contour` with no depth numbers and no credit, so it stays absent from the tiles "
             "(retired, T1268) and those apps draw no depth lines.",
     ),

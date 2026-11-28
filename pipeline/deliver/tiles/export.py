@@ -1050,21 +1050,33 @@ def export_admin(gpkg: str, out_dir: Path) -> dict:
 
 def export_contours(out_dir: Path, build_dir: Path, *, placings: Path | None = None, placed: Path | None = None) -> dict:
     """(T1268) The placed lake depth lines, `depth_contour`: ONLY the frozen placings' lines
-    (`pipeline.bathymetry.placed_contours`), the SHIPPING view only. No shipping row: the layer is empty. Shipping rows and
-    the placed set missing or made from other inputs: RAISES naming the command (W46; it used to skip a missing gpkg
-    layer, and the map then shipped without depth while saying nothing)."""
+    (`pipeline.bathymetry.placed_contours`), the SHIPPING view only, and the WHOLE layer file written each run (never
+    appended; an empty set writes it empty). The placed set missing or made from other inputs is made here through the
+    one producer (logged); a lake item this atlas does not hold, a zip that fails its hash, the size gate: RAISE (W46;
+    it used to skip a missing gpkg layer, and the map then shipped without depth while saying nothing)."""
     import orjson
     from pyproj import Transformer
     from shapely.geometry import LineString
     from pipeline.bathymetry import placed_contours, placings as _placings
     frozen = _placings.load(placings)
     spec = BY_NAME["depth_contour"]
-    if not _placings.shipping(frozen):          # withdrawn rows are a record, never drawn
+    rows = _placings.shipping(frozen)
+    if not rows:                                # withdrawn rows are a record, never drawn
+        # THE EXPORT OWNS THE LAYER FILE: the tiles read any non-empty layer file left in out/layers, so an empty set
+        # writes it EMPTY (old lines never survive a withdrawal or an emptied file)
+        _writer(out_dir, spec)[1]()
         print(f"  {'depth_contour':<16} <- no shipping frozen placings (bathymetry/placings.json): empty")
         return {"depth_contour": 0}
-    lines = placed_contours.require_current(placed, inputs=placed_contours.inputs_now(placings))
     # every lake item the lines carry must be an item of THIS atlas (a re-cut builds a new one): refused, never dropped
-    placed_contours.require_items(_placings.shipping(frozen), placed_contours.registry_ids(build_dir), build_dir)
+    placed_contours.require_items(rows, placed_contours.registry_ids(build_dir), build_dir)
+    inputs = placed_contours.inputs_now(placings)
+    try:
+        lines = placed_contours.require_current(placed, inputs=inputs)
+    except placed_contours.StalePlacedContours as why:
+        # (rule 62: one rebuild command) the tiles stage makes the placed set itself, through the one producer
+        print(f"  {'depth_contour':<16} <- making the placed depth lines: {why}", flush=True)
+        placed_contours.make(frozen, build_dir=build_dir, out=placed, inputs=inputs)
+        lines = placed_contours.require_current(placed, inputs=inputs)
     tf = Transformer.from_crs(3005, 4326, always_xy=True)
     write, close = _writer(out_dir, spec)
     nbytes = 0
@@ -1073,10 +1085,11 @@ def export_contours(out_dir: Path, build_dir: Path, *, placings: Path | None = N
             nbytes += len(raw)
             f = orjson.loads(raw)
             p = f["properties"]
-            # the tiles decide each line's zoom and index on its sheet's NATIVE unit (ladder.DEPTH_LADDER)
-            z, index = ladder.depth_line_zoom(p["native"], p["units"], floor=spec.minzoom)
+            # each line's zoom and index: the per-sheet ladder on its NATIVE unit (`ladder.sheet_ladder`), decided once
+            # by the placed-lines step from the whole sheet's levels
             write(_to4326(LineString(f["geometry"]["coordinates"]), tf),
-                  {"item": p["item"], "depth_m": p["depth_m"], "index": 1 if index else None}, z)
+                  {"item": p["item"], "depth_m": p["depth_m"], "index": 1 if p["index"] else None},
+                  max(int(p["minzoom"]), spec.minzoom))
     n = close()
     print(f"  {'depth_contour':<16} <- {'placed_contours':<26} {n:>6,}  ({nbytes / 1e6:,.1f} MB placed)")
     return {"depth_contour": n}

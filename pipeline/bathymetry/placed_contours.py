@@ -30,8 +30,9 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
 #: bump when the lines this writes change for the same inputs (the tiles' staleness check reads it)
-#: 2: depth_m to 0.1 mm (was 0.1 m); index on the native unit (T1268, feet ladder)
-VERSION = 2
+#: 2: depth_m to 0.1 mm (was 0.1 m); index on the native unit (T1268, feet ladder). 3: the per-sheet ladder; minzoom
+#: in the placed file
+VERSION = 3
 FEET = 0.3048
 #: (named minimum) a piece of a contour line shorter than this after the shoreline cut is dropped (metres on the ground)
 MIN_PIECE_M = 15.0
@@ -52,13 +53,31 @@ def out_dir() -> Path:
     return Path(GENERATED.bathymetry) / "placed"
 
 
-def inputs_now(placings_path: Optional[Path] = None, hashes_path: Optional[Path] = None) -> dict:
-    """What the placed set must have been made from: the frozen file's and the zips' hash list's sha256, and VERSION."""
+def policy() -> dict:
+    """EVERY constant that shapes the placed lines (`test_bathymetry_t1268` fails on a module constant missing here):
+    its digest is an input of the set, so a changed constant can never pass `require_current` with old lines."""
+    from pipeline.deliver.tiles import ladder
+    return {"VERSION": VERSION, "FEET": FEET, "MIN_PIECE_M": MIN_PIECE_M, "CLIP_REPORT_PCT": CLIP_REPORT_PCT,
+            "MAX_VERTICES": MAX_VERTICES, "ROUND": ROUND, "DEPTH_DECIMALS": DEPTH_DECIMALS,
+            "LAKE_LAYERS": list(LAKE_LAYERS), "NICE_STEPS": list(ladder.NICE_STEPS),
+            "INDEX_LINES_MIN": ladder.INDEX_LINES_MIN, "INDEX_LINES_MAX": ladder.INDEX_LINES_MAX}
+
+
+def policy_digest() -> str:
+    return hashlib.sha256(json.dumps(policy(), sort_keys=True).encode()).hexdigest()[:16]
+
+
+def inputs_now(placings_path: Optional[Path] = None, hashes_path: Optional[Path] = None,
+               gpkg: Optional[Path] = None) -> dict:
+    """What the placed set must have been made from: the frozen file, the zips' hash list, the FWA outlines (the gpkg's
+    identity, `build.stamp`, the one the tiles key on) and the producer's policy (`policy_digest`)."""
+    from pipeline.build import stamp
     from pipeline.common.curated import CURATED, SOURCE
     pp = Path(placings_path or CURATED.bathymetry.placings)
     hp = Path(hashes_path or SOURCE.bathymetry_vectors_sha256)
     return {"placings_sha256": hashlib.sha256(pp.read_bytes()).hexdigest(),
-            "vectors_sha256": hashlib.sha256(hp.read_bytes()).hexdigest(), "version": VERSION}
+            "vectors_sha256": hashlib.sha256(hp.read_bytes()).hexdigest(),
+            "outlines": stamp(Path(gpkg or SOURCE.fwa_gpkg)), "policy": policy_digest(), "version": VERSION}
 
 
 class StalePlacedContours(RuntimeError):
@@ -105,9 +124,10 @@ def require_items(rows: Iterable[Mapping], ids: set, build_dir: Path) -> None:
     bad = [f"{r['sheet']} {lk['wbk']} item {lk['item']}" for r in rows for lk in r["lakes"] if lk["item"] not in ids]
     if bad:
         raise UnknownLakeItem(f"{len(bad)} frozen depth placing(s) name a lake item the atlas at {build_dir} does not "
-                              f"hold: {'; '.join(bad)}. Nothing is drawn: fix those rows in "
-                              "data/curated/bathymetry/placings.json (a withdrawal and a new acceptance on the "
-                              f"surviving item), then {COMMAND}")
+                              f"hold: {'; '.join(bad)}. Nothing is drawn. The fix goes through the placings' one "
+                              "writer: the owner re-marks the chart on the review page (wrong_lake withdraws the row; "
+                              "right on the surviving lake re-accepts it), then `python -m pipeline.bathymetry.placings "
+                              f"--freeze ...` with that export; then {COMMAND}")
 
 
 def lake_outlines(gpkg: Path, wbks: Iterable[int]) -> Dict[int, object]:
@@ -159,10 +179,6 @@ def depth_m(native: float, units: str) -> float:
     raise ValueError(f"units {units!r}: only feet or metres are placed")
 
 
-def is_index(native: float, units: str) -> bool:
-    """An index (labelled) line, by the tiles' ladder on the sheet's NATIVE unit (`tiles.ladder.DEPTH_LADDER`)."""
-    from pipeline.deliver.tiles.ladder import depth_line_zoom
-    return depth_line_zoom(native, units)[1]
 
 
 def place_sheet(row: Mapping, contours: Iterable[Tuple], outlines: Mapping[int, object]) -> Tuple[List[dict], dict]:
@@ -178,6 +194,10 @@ def place_sheet(row: Mapping, contours: Iterable[Tuple], outlines: Mapping[int, 
     missing = [w for _i, w in lakes if w not in outlines]
     if missing:
         raise ValueError(f"{row['sheet']}: no FWA outline for lake(s) {missing} (layers {LAKE_LAYERS})")
+    from pipeline.deliver.tiles.ladder import depth_line_zoom, sheet_ladder
+    contours = list(contours)
+    levels = [abs(float(cv)) for cv, _f, pts in contours if cv not in (None, 0) and len(pts) >= 2]
+    steps = sheet_ladder(levels) if levels else None     # the sheet's own ladder, from all its levels (native unit)
     stats = {item: {"total_m": 0.0, "kept_m": 0.0, "stubs": 0, "stub_m": 0.0} for item, _w in lakes}
     pieces = []
     for cv, _fc, pts in contours:
@@ -191,18 +211,19 @@ def place_sheet(row: Mapping, contours: Iterable[Tuple], outlines: Mapping[int, 
         inside = [(item, w, line.intersection(outlines[w])) for item, w in lakes]
         owner = max(inside, key=lambda t: (t[2].length, t[0]))[0]      # the lake that holds most of it
         stats[owner]["total_m"] += line.length
+        z, index = depth_line_zoom(native, steps)
         for item, w, part in inside:
             for piece in _merged(part):
+                if item != owner:                           # a piece (kept or a stub) counts for the lake it lies in
+                    stats[item]["total_m"] += piece.length
+                    stats[owner]["total_m"] -= piece.length
                 if piece.length < MIN_PIECE_M:
                     stats[item]["stubs"] += 1
                     stats[item]["stub_m"] += piece.length
                     continue
                 stats[item]["kept_m"] += piece.length
-                if item != owner:
-                    stats[item]["total_m"] += piece.length              # a crossing piece counts for the lake it is in
-                    stats[owner]["total_m"] -= piece.length
                 pieces.append({"item": item, "wbk": f"wbk:{w}", "sheet": row["sheet"], "depth_m": d,
-                               "native": native, "units": row["units"], "index": is_index(native, row["units"]),
+                               "native": native, "units": row["units"], "index": index, "minzoom": z,
                                "coords": [(round(x, ROUND), round(y, ROUND)) for x, y in piece.coords]})
     return pieces, stats
 
@@ -267,7 +288,7 @@ def write(directory: Path, pieces: list, facts: dict, report: dict) -> None:
     tmp = d / "contours.geojsonl.tmp"
     with tmp.open("w", encoding="utf-8") as f:
         for p in pieces:
-            props = {k: p[k] for k in ("item", "wbk", "sheet", "depth_m", "native", "units", "index")}
+            props = {k: p[k] for k in ("item", "wbk", "sheet", "depth_m", "native", "units", "index", "minzoom")}
             f.write(json.dumps({"type": "Feature", "properties": props,
                                 "geometry": {"type": "LineString", "coordinates": p["coords"]}},
                                separators=(",", ":")) + "\n")
@@ -281,31 +302,19 @@ def write(directory: Path, pieces: list, facts: dict, report: dict) -> None:
     os.replace(d / "report.json.tmp", rep)
 
 
-def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="the placed depth contours from the frozen placings (T1268)")
-    ap.add_argument("--check", action="store_true", help="is the placed set current for the frozen file? no work")
-    ap.add_argument("--out", type=Path, help="another folder (a side run); default GENERATED.bathymetry/placed")
-    ap.add_argument("--gpkg", type=Path, help="default SOURCE.fwa_gpkg")
-    ap.add_argument("--build", type=Path, help="the atlas build whose registry the lake items must be in "
-                                                "(default: the configured build, GENERATED.require_build())")
-    a = ap.parse_args(argv)
+def make(frozen: Mapping, *, build_dir: Path, out: Optional[Path] = None, gpkg: Optional[Path] = None,
+         inputs: Optional[dict] = None) -> dict:
+    """THE one way the placed set is made (the CLI and the tiles stage both call it): every shipping row's lake item in
+    the atlas at `build_dir` (else it raises), its FWA outlines, each zip proved against the committed list AND the
+    sha256 frozen with its row, the lines built, the size gate, the three files written. Returns the report."""
     from pipeline.bathymetry import e00, placings, vectors
     from pipeline.common.curated import SOURCE
-    d = a.out or out_dir()
-    frozen = placings.load()
-    if a.check:
-        if not placings.shipping(frozen):
-            print("no shipping frozen placings: nothing to place")
-            return 0
-        print(require_current(d))
-        return 0
-    inputs = inputs_now()
+    d = Path(out or out_dir())
+    inputs = inputs or inputs_now(gpkg=gpkg)
     rows = placings.shipping(frozen)
-    from pipeline.common.curated import GENERATED
-    build_dir = Path(a.build) if a.build else GENERATED.require_build()
     require_items(rows, registry_ids(build_dir), build_dir)
     wbks = [int(lk["wbk"].split(":")[1]) for r in rows for lk in r["lakes"]]
-    outlines = lake_outlines(Path(a.gpkg or SOURCE.fwa_gpkg), wbks)
+    outlines = lake_outlines(Path(gpkg or SOURCE.fwa_gpkg), wbks)
 
     def read_contours(row):
         z = vectors.zip_path(row["zip"])
@@ -319,8 +328,45 @@ def main(argv=None) -> int:
 
     pieces, facts, report = build(frozen, read_contours=read_contours, outlines=outlines, inputs=inputs)
     write(d, pieces, facts, report)
-    print(f"{report['rows']} sheets, {report['lakes']} lakes, {report['pieces']:,} pieces, {report['vertices']:,} "
-          f"vertices; {len(report['clipped_over_pct'])} lakes over {CLIP_REPORT_PCT} % clipped -> {d}")
+    print(f"placed depth lines: {report['rows']} sheets, {report['lakes']} lakes, {report['pieces']:,} pieces, "
+          f"{report['vertices']:,} vertices; {len(report['clipped_over_pct'])} lakes over {CLIP_REPORT_PCT} % "
+          f"clipped -> {d}", flush=True)
+    return report
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description="the placed depth contours from the frozen placings (T1268); the tiles "
+                                             "stage makes them itself when they are missing or stale")
+    ap.add_argument("--check", action="store_true",
+                    help="what would stop the tiles stage, in seconds: every shipping row's zip proved (the committed "
+                         "list and the sha256 frozen with it) and its lake item in the build's registry; says whether "
+                         "the placed set is current (the tiles stage remakes a stale one)")
+    ap.add_argument("--out", type=Path, help="another folder (a side run); default GENERATED.bathymetry/placed")
+    ap.add_argument("--gpkg", type=Path, help="default SOURCE.fwa_gpkg")
+    ap.add_argument("--build", type=Path, help="the atlas build whose registry the lake items must be in "
+                                                "(default: the configured build, GENERATED.require_build())")
+    a = ap.parse_args(argv)
+    from pipeline.bathymetry import placings
+    from pipeline.common.curated import GENERATED
+    d = a.out or out_dir()
+    frozen = placings.load()
+    if a.check:
+        rows = placings.shipping(frozen)
+        if not rows:
+            print("no shipping frozen placings: nothing to place")
+            return 0
+        from pipeline.bathymetry import vectors
+        bad = [f"{r['sheet']} {r['zip']}" for r in rows if vectors.zip_sha256(r["zip"]) != r["zip_sha256"]]
+        if bad:
+            raise vectors.VectorSourceError(f"zip(s) whose committed hash differs from the one frozen: {bad}")
+        build_dir = Path(a.build) if a.build else GENERATED.require_build()
+        require_items(rows, registry_ids(build_dir), build_dir)
+        try:
+            print(f"placed set current: {require_current(d, inputs=inputs_now(gpkg=a.gpkg))}")
+        except StalePlacedContours as why:
+            print(f"placed set not current ({why}); the tiles stage remakes it")
+        return 0
+    make(frozen, build_dir=Path(a.build) if a.build else GENERATED.require_build(), out=d, gpkg=a.gpkg)
     return 0
 
 

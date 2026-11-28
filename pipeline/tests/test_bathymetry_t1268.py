@@ -7,6 +7,7 @@ without depth while saying nothing. Synthetic sheets only.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -50,12 +51,13 @@ def test_the_owner_s_adjustment_is_drawn_as_the_page_drew_it():
     assert np.allclose(pieces[0]["coords"], page, atol=0.01)
 
 
-def test_feet_are_converted_and_index_lines_are_every_10_m():
+def test_feet_are_converted_exactly_and_a_short_sheet_s_lines_are_all_index_lines():
     lines = [(-10.0, "HA", SQUARE), (-30.0, "HA", SQUARE)]
     ft, _ = PC.place_sheet(_row(units="feet"), lines, {1: box(-1e3, -1e3, 1e3, 1e3)})
-    assert [(p["depth_m"], p["native"], p["index"]) for p in ft] == [(3.048, 10.0, False), (9.144, 30.0, False)]
+    assert [(p["depth_m"], p["native"], p["index"], p["minzoom"]) for p in ft] == [(3.048, 10.0, True, 11),
+                                                                                    (9.144, 30.0, True, 11)]
     m, _ = PC.place_sheet(_row(units="metres"), [(-5.0, "HA", SQUARE), (-20.0, "HA", SQUARE)], {1: box(-1e3, -1e3, 1e3, 1e3)})
-    assert [(p["depth_m"], p["index"]) for p in m] == [(5.0, False), (20.0, True)]
+    assert [(p["depth_m"], p["index"]) for p in m] == [(5.0, True), (20.0, True)]
     with pytest.raises(ValueError, match="only feet or metres"):
         PC.depth_m(3.0, "not stated")
 
@@ -85,6 +87,15 @@ def test_a_two_lake_sheet_s_lines_go_to_the_lake_each_piece_lies_in():
     assert sorted((p["item"], p["coords"][0], p["coords"][-1]) for p in pieces) == [
         ("wbk:1", (10.0, 50.0), (90.0, 50.0)), ("wbk:2", (110.0, 50.0), (190.0, 50.0))]
     assert sum(s["total_m"] for s in st.values()) == pytest.approx(180)
+
+
+def test_a_two_lake_stub_counts_for_the_lake_it_lies_in():
+    rows = _row(lakes=(("wbk:1", 1), ("wbk:2", 2)))
+    line = [(10, 50), (100 + PC.MIN_PIECE_M / 2, 50)]          # 90 m in lake 1, a stub in lake 2
+    outlines = {1: box(0, 0, 90, 100), 2: box(100, 0, 200, 100)}
+    _pieces, st = PC.place_sheet(rows, [(-3.0, "HA", line)], outlines)
+    assert st["wbk:2"]["stubs"] == 1 and st["wbk:2"]["total_m"] == pytest.approx(PC.MIN_PIECE_M / 2)
+    assert st["wbk:1"]["total_m"] == pytest.approx(100 + PC.MIN_PIECE_M / 2 - 10 - PC.MIN_PIECE_M / 2)
 
 
 def test_a_lake_with_no_outline_raises():
@@ -195,12 +206,69 @@ def test_no_frozen_row_draws_an_empty_layer(tmp_path):
         {"depth_contour": 0}
 
 
-def test_frozen_rows_with_no_placed_set_raise_never_skip(tmp_path, monkeypatch):
+def _fake_make(tmp_path, calls):
+    """The producer as the tiles call it, on synthetic lines (no zips): the SHIPPING rows' lines only."""
+    def make(frozen, *, build_dir, out=None, gpkg=None, inputs=None):
+        calls.append([r["sheet"] for r in P.shipping(frozen)])
+        outlines = {int(lk["wbk"].split(":")[1]): box(-1e7, -1e7, 1e7, 1e7) for r in frozen["placings"] for lk in r["lakes"]}
+        PC.write(out, *PC.build(frozen, read_contours=lambda r: [(-2.0, "HA", SQUARE)], outlines=outlines, inputs=inputs))
+    return make
+
+
+def test_the_tiles_make_a_missing_placed_set_through_the_one_producer(tmp_path, monkeypatch):
+    inputs = {"placings_sha256": "p", "vectors_sha256": "v", "version": PC.VERSION}
+    monkeypatch.setattr(PC, "inputs_now", lambda *a, **k: inputs)
+    calls = []
+    monkeypatch.setattr(PC, "make", _fake_make(tmp_path, calls))
     out = tmp_path / "layers"
     out.mkdir()
-    monkeypatch.setattr(PC, "inputs_now", lambda *a, **k: {"placings_sha256": "p", "vectors_sha256": "v", "version": 1})
-    with pytest.raises(PC.StalePlacedContours, match="placed_contours"):
-        export.export_contours(out, _reg(tmp_path), placings=_placings_file(tmp_path, [_row()]), placed=tmp_path / "nowhere")
+    got = export.export_contours(out, _reg(tmp_path), placings=_placings_file(tmp_path, [_row()]),
+                                 placed=tmp_path / "placed")
+    assert calls == [["00000001"]] and got == {"depth_contour": 1}
+
+
+def test_a_producer_that_fails_stops_the_tiles(tmp_path, monkeypatch):
+    monkeypatch.setattr(PC, "inputs_now", lambda *a, **k: {"placings_sha256": "p"})
+    def boom(*a, **k):
+        raise RuntimeError("placed depth contours: 9 vertices, over the gate")
+    monkeypatch.setattr(PC, "make", boom)
+    out = tmp_path / "layers"
+    out.mkdir()
+    with pytest.raises(RuntimeError, match="over the gate"):
+        export.export_contours(out, _reg(tmp_path), placings=_placings_file(tmp_path, [_row()]), placed=tmp_path / "p")
+
+
+def test_the_export_writes_the_whole_layer_each_run_so_a_withdrawn_lake_s_lines_go(tmp_path, monkeypatch):
+    """P1 of the review: the tiles read any non-empty layer file, so the export owns it: 2 rows -> both drawn; one
+    withdrawn -> only the other; all withdrawn -> the file is there and EMPTY."""
+    monkeypatch.setattr(PC, "inputs_now", lambda path, *a, **k: {"placings_sha256": Path(path).read_text()})
+    monkeypatch.setattr(PC, "make", _fake_make(tmp_path, []))
+    out = tmp_path / "layers"
+    out.mkdir()
+    one, two = _row("00000001"), _row("00000002", lakes=(("wbk:2", 2),))
+    def run(rows):
+        export.export_contours(out, _reg(tmp_path), placings=_placings_file(tmp_path, rows), placed=tmp_path / "placed")
+        f = out / "depth_contour.geojsonl"
+        return sorted({json.loads(l)["properties"]["item"] for l in f.read_text().splitlines()}), f.stat().st_size
+    assert run([one, two])[0] == ["wbk:1", "wbk:2"]
+    gone = {"status": "withdrawn", "withdrawn": {"reason": "owner_marked_wrong_fit"}}
+    assert run([one, dict(two, **gone)])[0] == ["wbk:1"]
+    assert run([dict(one, **gone), dict(two, **gone)]) == ([], 0)
+
+
+def test_every_constant_that_shapes_the_lines_is_in_the_policy_digest(monkeypatch):
+    """Like POLICY_VERSION (AGENTS 20): a constant of the producer or of the depth ladder left out of `policy()` could
+    change the lines while `require_current` still passed the old set."""
+    from pipeline.deliver.tiles import ladder as L
+    consts = {k for k, v in vars(PC).items() if k.isupper() and isinstance(v, (int, float, tuple)) and k != "COMMAND"}
+    consts |= {"NICE_STEPS", "INDEX_LINES_MIN", "INDEX_LINES_MAX"}
+    assert consts <= set(PC.policy()), sorted(consts - set(PC.policy()))
+    before = PC.policy_digest()
+    monkeypatch.setattr(PC, "MIN_PIECE_M", PC.MIN_PIECE_M + 1)
+    assert PC.policy_digest() != before
+    monkeypatch.setattr(PC, "MIN_PIECE_M", PC.MIN_PIECE_M - 1)
+    monkeypatch.setattr(L, "INDEX_LINES_MAX", L.INDEX_LINES_MAX + 1)
+    assert PC.policy_digest() != before
 
 
 def test_the_layer_carries_item_depth_and_index_and_the_ladder(tmp_path, monkeypatch):
@@ -221,7 +289,7 @@ def test_the_layer_carries_item_depth_and_index_and_the_ladder(tmp_path, monkeyp
     feats = [json.loads(l) for l in (out / "depth_contour.geojsonl").read_text().splitlines()]
     got = sorted((f["properties"].get("depth_m"), f["properties"].get("index"), f["tippecanoe"]["minzoom"],
                   f["properties"]["item"]) for f in feats)
-    assert got == [(5.0, None, 12, "wbk:1"), (10.0, 1, 11, "wbk:1")]          # index: 1 or absent, never 0
+    assert got == [(5.0, 1, 11, "wbk:1"), (10.0, 1, 11, "wbk:1")]          # index: 1 or absent, never 0
     assert set(feats[0]["properties"]) <= set(BY_NAME["depth_contour"].attrs)
 
 
@@ -232,34 +300,46 @@ def test_a_feet_sheet_s_layer_takes_its_zooms_and_index_from_feet(tmp_path, monk
     rows = [_row(pose=pose, units="feet")]
     from shapely import affinity
     outline = affinity.translate(box(0, 0, 100, 100), 1_400_000, 700_000)
-    lines = [(-100.0, "HA", SQUARE), (-50.0, "HA", SQUARE), (-20.0, "HA", SQUARE)]
+    charlotte = [20.0, 50.0, 75.0, 100.0, 125.0, 150.0, 200.0, 250.0, 300.0, 325.0]     # Charlotte Lake's levels (ft)
+    lines = [(-v, "HA", SQUARE) for v in charlotte]
     PC.write(placed, *PC.build(_frozen(rows), read_contours=lambda r: lines, outlines={1: outline}, inputs=inputs))
     monkeypatch.setattr(PC, "inputs_now", lambda *a, **k: inputs)
     out = tmp_path / "layers"
     out.mkdir()
     export.export_contours(out, _reg(tmp_path), placings=_placings_file(tmp_path, rows), placed=placed)
     feats = [json.loads(l) for l in (out / "depth_contour.geojsonl").read_text().splitlines()]
-    got = sorted((f["properties"]["depth_m"], f["properties"].get("index"), f["tippecanoe"]["minzoom"]) for f in feats)
-    assert got == [(6.096, None, 13), (15.24, None, 12), (30.48, 1, 11)]
+    got = {round(f["properties"]["depth_m"] / PC.FEET): (f["properties"].get("index"), f["tippecanoe"]["minzoom"])
+           for f in feats}
+    assert {ft for ft, (i, z) in got.items() if i == 1 and z == 11} == {20, 100, 200, 300}
+    assert {ft for ft, (i, z) in got.items() if z == 12} == {50, 150, 250}
+    assert {ft for ft, (i, z) in got.items() if z == 13} == {75, 125, 325}
 
 
-def test_the_ladder_is_decided_on_the_native_unit():
-    """Metres: 10 m index z11, 5 m z12, the rest z13. Feet: 100 ft index z11, 50 ft z12, the rest z13 (the converted
-    metres of a feet line are a multiple of nothing, so a metres rule drew no feet line below z13)."""
-    m = {d: ladder.depth_line_zoom(d, "metres") for d in (20.0, 5.0, 3.0)}
-    assert m == {20.0: (11, True), 5.0: (12, False), 3.0: (13, False)}
-    f = {d: ladder.depth_line_zoom(d, "feet") for d in (200.0, 150.0, 20.0, 10.0)}
-    assert f == {200.0: (11, True), 150.0: (12, False), 20.0: (13, False), 10.0: (13, False)}
-    with pytest.raises(ValueError, match="ladder knows"):
-        ladder.depth_line_zoom(3.0, "fathoms")
+def test_the_ladder_is_per_sheet_on_its_own_levels():
+    """The smallest nice step leaving INDEX_LINES_MIN..MAX index levels; the next finer nice step for z12."""
+    assert ladder.sheet_ladder([1, 2, 3, 4, 5, 6, 7]) == (2, 1)                    # Abruzzi, metres: 2, 4, 6 labelled
+    assert ladder.sheet_ladder(range(10, 130, 10)) == (20, 10)                     # a deep 10-step sheet: 6 index lines
+    for few in ([5, 10, 15], [20, 40, 60], [6, 12, 18, 24, 30, 36]):              # Chief, Heffley: every line labelled
+        steps = ladder.sheet_ladder(few)
+        assert all(ladder.depth_line_zoom(v, steps) == (11, True) for v in few)
+    assert ladder.sheet_ladder([7]) == (7.0, 7.0) and ladder.depth_line_zoom(7, (7.0, 7.0)) == (11, True)
+    with pytest.raises(ValueError, match="no depth level"):
+        ladder.sheet_ladder([])
 
 
-def test_mutation_a_metres_ladder_on_feet_draws_nothing_below_z13():
-    """The measured failure: Charlotte Lake's 20-325 ft lines converted to metres hit no 5 m or 10 m multiple."""
+def test_every_sheet_gets_an_index_line_and_none_is_flooded():
+    for levels in ([1, 2, 3], range(1, 40), range(5, 700, 5), [20, 50, 51, 99, 100, 150, 200, 250, 300], [8, 10, 20, 30]):
+        steps = ladder.sheet_ladder(levels)
+        n = sum(ladder.depth_line_zoom(v, steps)[1] for v in set(levels))
+        assert 1 <= n <= ladder.INDEX_LINES_MAX, (list(levels)[:5], steps, n)
+
+
+def test_mutation_a_metres_rule_on_converted_feet_draws_nothing_below_z13():
+    """The measured failure: Charlotte Lake's 20-325 ft lines, converted to metres, hit no 5 m or 10 m multiple."""
     ft = [20.0, 50.0, 75.0, 100.0, 125.0, 150.0, 200.0, 250.0, 300.0, 325.0]
-    as_metres = [ladder.depth_line_zoom(PC.depth_m(v, "feet"), "metres")[0] for v in ft]
-    native = [ladder.depth_line_zoom(v, "feet")[0] for v in ft]
-    assert min(as_metres) == 13 and min(native) == 11 and sum(z <= 12 for z in native) == 6
+    as_metres = [ladder.depth_line_zoom(PC.depth_m(v, "feet"), (10.0, 5.0))[0] for v in ft]
+    native = [ladder.depth_line_zoom(v, ladder.sheet_ladder(ft))[0] for v in ft]
+    assert min(as_metres) == 13 and min(native) == 11
 
 
 def test_a_feet_depth_reads_back_as_printed():

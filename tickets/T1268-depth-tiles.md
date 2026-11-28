@@ -30,7 +30,9 @@ Contract with the app lane: the depth lane's `CONTRACT.md` (night notes 2026-11-
 - `MIN_PIECE_M = 15` (a piece shorter than this after the shoreline cut is dropped).
 - D7 `CLIP_REPORT_PCT = 5`: cut at the shoreline, list every lake over 5 % clipped.
 - `MAX_VERTICES = 4,000,000` (the size gate; the producer refuses above it).
-- Zoom ladder (unchanged `ladder.zoom_for_contour`): index (every 10 m) z11, 5 m multiples z12, the rest z13.
+- Zoom ladder per sheet (`ladder.sheet_ladder`, review of 2026-11-28): from the sheet's own levels in its native
+  unit, the smallest nice step (1, 2, 5 x 10^k) leaving `INDEX_LINES_MIN` 2 to `INDEX_LINES_MAX` 6 index lines (z11),
+  the next finer nice step z12, the rest z13; one level = its index. Every accepted lake has an index line.
 
 ## Acceptance
 `pipeline/tests/test_bathymetry_t1268.py` (synthetic sheets: pose, feet, clip, split, adjust, stubs, determinism,

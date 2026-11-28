@@ -388,10 +388,11 @@ step "every classified water the book prints is in the corpus as printed" "$PY" 
 # Reads the live atlas's registry.json (~2 s); a missing build raises naming the command that makes it
 step "data: every curated override id names the live atlas's water" "$PY" -m pipeline.regs.matching.matcher
 
-# (T1268) the tiles refuse a depth_contour layer made from another freeze, but only after the export: a fresh freeze
-# with no placed lines (or lines over the size gate) would fail a tiles build an hour in. Instant: two sha256s and a
-# report read; "no frozen placings" passes
-step "data: the placed depth contours are current for the frozen placings" "$PY" -m pipeline.bathymetry.placed_contours --check
+# (T1268) what would stop a tiles build in its depth step, in seconds: every shipping frozen placing's zip proved
+# against the committed list and the sha256 frozen with it, and its lake item in the live build's registry (a re-cut's
+# new atlas). Whether the placed set is current is only SAID: the tiles stage remakes a stale one (rule 62); the size
+# gate is the producer's own (it refuses before writing). "No frozen placings" passes
+step "data: the frozen depth placings' zips and lake items hold for the live build" "$PY" -m pipeline.bathymetry.placed_contours --check
 
 # (T535) every `pnpm check` gate but the vitest suite, from its one home `app/package.json` `check:fast` (~21 s for 17
 # gates, measured 2026-11-10: colours 6 s, promises 4 s, typecheck:seo 3 s, knip 2 s, the rest < 1 s each). It holds

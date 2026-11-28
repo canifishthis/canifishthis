@@ -125,7 +125,9 @@ STAGE_GRAPH: tuple[Stage, ...] = (
     Stage("tiles", (), (), ("pipeline/deliver/tiles", "pipeline/atlas/splits",
                             # T166: the tidal pieces the tiles leave off (`tiles/tidal.py`): T678, the atlas's
                             # record; an atlas cut before it, the reach's resolvers
-                            "pipeline/atlas/reach/outside.py", "pipeline/atlas/reach/extent.py"),
+                            "pipeline/atlas/reach/outside.py", "pipeline/atlas/reach/extent.py",
+                            # (T1268) the tiles stage makes the placed depth lines itself (`placed_contours.make`)
+                            "pipeline/bathymetry"),
           "atlas.pmtiles + layers/ + the released tile folder"),
     # after reach: a FIRST BUILD resolves on the atlas + its reach run (`resolve --first-build`); a reach rerun does
     # not rerun it (`after`, not `depends`): an existing resolution belongs to the release that made it
