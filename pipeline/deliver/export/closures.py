@@ -14,6 +14,7 @@ from pathlib import Path
 from pipeline.deliver import calendar as CAL
 from pipeline.regs.parsing import catalogue as C
 from pipeline.common import entry_id as EID
+from pipeline.deliver.export.contract import _need
 from pipeline.deliver.export.dictionary import _name
 from pipeline.deliver.export.verdicts import answer_on, rule_keys_of, verdicts_of
 
@@ -66,6 +67,11 @@ def with_closure_gotchas(g: dict, d: dict, bundle: Path) -> dict:
     }
     g["gotchas"]["star_carries_exemptions"] = star_carries_exemptions(d, bundle)
     g["gotchas"]["farther_exemption_nearer_silent"] = farther_exemption_nearer_silent(bundle)
+    undrawn, excepted = tributary_scope_sets(bundle)
+    stray = sorted(set(undrawn) - set(d["rules"])) + sorted(set(excepted) - set(d["entries"]))
+    if stray:
+        raise SystemExit(f"export: the bundle's tributary scope names records the export does not hold: {stray[:5]}. "
+                         f"Rebuild the bundle with `python -m pipeline.deliver.bundle`.")
     g["gotchas"]["excepted_rivers_creeks_stay_closed"] = {
         "says": "A row closing its tributaries 'EXCEPT' some named rivers excepts those rivers' "
                 "OWN channels only: a creek flowing into an excepted river is still a tributary of "
@@ -73,9 +79,10 @@ def with_closure_gotchas(g: dict, d: dict, bundle: Path) -> dict:
                 "Fishing tributaries EXCEPT Ashlu, Cheakamus, Elaho, Mamquam, Powerhouse Channel', "
                 "p.26). The excepted river follows its own row; never show its creeks as open "
                 "because the river is.",
-        "key_on": "rules[id].fields.tributary_excludes[*].walk_past == true: the excluded water "
-                  "is out, the walk goes on above it",
-        "entries": [e for e in EXCEPTED_RIVERS_CREEKS_CLOSED if e in d["entries"]],
+        "key_on": "entries[entry_id] listed here: a closure of the row whose tributary carve-out walks past the "
+                  "excepted water (the bundle's `tributary_excludes[*].walk_past`): the excluded water is out, "
+                  "the walk goes on above it",
+        "entries": excepted,
     }
     binds: dict = {}
     for x in d["rules"].values():
@@ -91,16 +98,15 @@ def with_closure_gotchas(g: dict, d: dict, bundle: Path) -> dict:
         "key_on": "entries[entry_id] with kind 'water', no matched and no item_id",
         "entries": lost,
     }
-    notes = sorted(i for i in UNDRAWN_PART_TRIBUTARIES if i in d["rules"])
     g["gotchas"]["undrawn_part_tributaries"] = {
         "says": "A rule printed with ✱ (includes tributaries) whose own reach nothing draws — held on "
                 "its water as an undrawn-part note — reaches the TRIBUTARIES OF THAT PART only, and "
                 "those are not drawn either (user ruling 2026-10-07): the note says the part's "
                 "tributaries are included; no tributary is coloured or closed by it. Show the note "
                 "with that sentence on the water.",
-        "key_on": "rules[id] listed here (an undrawn part whose rule reaches tributaries; "
-                  "`UNDRAWN_PART_TRIBUTARIES`, pinned against the corpus by test_rules_round.py)",
-        "rules": notes,
+        "key_on": "rules[id] listed here (an undrawn part whose rule reaches tributaries: its own "
+                  "`includes_tributaries`, else its row's, or `tributaries_only`; read off the bundle)",
+        "rules": undrawn,
     }
     g["gotchas"]["dated_bait_ban_replaces_zone"] = {
         "says": "A row printing a DATED bait ban ('Bait ban, May 1-Nov 30') where its zone "
@@ -587,19 +593,41 @@ def closures_combine_problems(entries: dict, bundle: Path) -> list[str]:
     return out
 
 
-#: THE UNDRAWN-PART RULES WHOSE ROW OR RULE INCLUDES TRIBUTARIES (user ruling 2026-10-07): held on
-#: their water as a note, they no longer walk (`reach.classify.UNDRAWN_PART_DOES_NOT_WALK`), so the
-#: tributaries of their part are named here. The bundle does not carry a rule's tributary scope;
-#: `test_rules_round.py` re-derives this list from the corpus and refuses a drift.
-UNDRAWN_PART_TRIBUTARIES = (
-    # (owner 2026-10-27) Deena r1 and Mamin r3 are drawn now (low-confidence bridge cuts): they walk their tributaries
-    "r7:dinosaur_lake_reservoir_downstream_of_w_a_c_bennett_dam@7-31::dinosaur_lake.r1",
-)
+def tributary_scope_sets(bundle) -> tuple[list[str], list[str]]:
+    """(T679 #12, owner 2026-11-27 "derive from data but in 0.10") `(undrawn, excepted)`, READ OFF THE BUNDLE — the
+    two lists that were id tuples in this file (`UNDRAWN_PART_TRIBUTARIES`, `EXCEPTED_RIVERS_CREEKS_CLOSED`):
 
-#: Rows closing their tributaries EXCEPT named rivers, whose excepted rivers' creeks stay closed
-#: (user ruling Q6, 2026-10-07; `tributary_excludes` with `walk_past`). Pinned against the corpus by
-#: test_rules_round.py (the bundle does not carry `tributary_excludes`).
-EXCEPTED_RIVERS_CREEKS_CLOSED = ("r2:squamish_river_s_tributaries@2-6",)
+    - `undrawn` (rule ids `entry::rule`): THE UNDRAWN-PART RULES THAT REACH TRIBUTARIES (user ruling 2026-10-07, RULINGS
+      T10). A rule with an `undrawn_part` whose own `includes_tributaries` is true, or unset under a row that includes
+      them (AGENTS 9: three-valued, so Pitt River r2's own "no" under its ✱ row stays out), or that is
+      `tributaries_only`. Held on its water as a note it does not walk (`reach.classify.UNDRAWN_PART_DOES_NOT_WALK`),
+      so the gotcha names it.
+    - `excepted` (entry ids): ROWS CLOSING THEIR TRIBUTARIES EXCEPT NAMED WATERS, WHOSE EXCEPTED WATERS' CREEKS STAY
+      CLOSED (RULINGS T5, the Squamish; T7, lower Michel Creek under the Elk's tributaries): an entry with a closure
+      (`rule.closure_grade`) carrying a `tributary_excludes` extent with `walk_past` — the walk leaves the excepted
+      water out and goes on above it.
+
+    Both from `rule_tributary` (the rule's own scope, which `rule.conditions` cannot say: it drops a false flag) and
+    `entry.includes_tributaries`."""
+    db = sqlite3.connect(f"file:{bundle}?mode=ro", uri=True)
+    try:
+        _need(db, bundle)
+        rows = db.execute(
+            "SELECT r.entry_id, r.rule_id, r.undrawn_part, r.closure_grade, e.includes_tributaries, "
+            "       t.includes_tributaries, t.tributaries_only, t.tributary_excludes "
+            "FROM rule r LEFT JOIN entry e ON e.entry_id = r.entry_id "
+            "LEFT JOIN rule_tributary t ON t.entry_id = r.entry_id AND t.rule_id = r.rule_id "
+            "ORDER BY r.entry_id, r.rule_id").fetchall()
+    finally:
+        db.close()
+    undrawn, excepted = set(), set()
+    for eid, rid, part, grade, row_tribs, own, only, excludes in rows:
+        reaches = own if own is not None else row_tribs
+        if str(part or "").strip() and (reaches or only):
+            undrawn.add(f"{eid}::{rid}")
+        if grade is not None and any(x.get("walk_past") for x in json.loads(excludes or "[]")):
+            excepted.add(eid)
+    return sorted(undrawn), sorted(excepted)
 
 
 def star_carries_exemptions(d: dict, bundle=None) -> dict:

@@ -8,7 +8,7 @@ from array import array
 import sqlite3
 from pathlib import Path
 from pipeline.common import entry_id as EID
-from pipeline.deliver.bundle.rules.row import _mus_of, _rule_row
+from pipeline.deliver.bundle.rules.row import _mus_of, _rule_row, tributary_row
 from pipeline.deliver.bundle.rules.lifts import blanket_closures, region_caps, row_caps, row_on_a_stream, zone_closures
 from pipeline.deliver.bundle.rules.see import _see_column, entry_name, see_pointer_rows
 from pipeline.deliver.bundle.rules.regions import (
@@ -126,7 +126,7 @@ def write(db: sqlite3.Connection, reaches: Path, entries_dir: Path, cov,
     registry = load_registry(str(Path(build_dir) / "registry.json"))
     namer = PlaceNamer(registry, resolved_labels(build_dir), area_names(build_dir))
 
-    entry_rows, rule_rows = [], []
+    entry_rows, rule_rows, tributary_rows = [], [], []
     ces = []
     docs = []
     # EVERY ENTRY SOURCE, and nothing else. A source is a directory of region files carrying
@@ -221,6 +221,10 @@ def write(db: sqlite3.Connection, reaches: Path, entries_dir: Path, cov,
                                            ce, r.get("rule_id"), water_regions, co_bound, own),
                                        blankets=blankets,
                                        caps=row_caps_))
+            # T679 #12: the rule's own tributary scope, three-valued, beside its row (`rule_tributary`)
+            t = tributary_row(e["entry_id"], siblings[r.get("rule_id")])
+            if t is not None:
+                tributary_rows.append(t)
 
     # NAMED, not positional. A `pages` column was added to the schema while this line kept
     # seven placeholders, and nothing caught it until 90 seconds into a province-wide rebuild
@@ -245,6 +249,9 @@ def write(db: sqlite3.Connection, reaches: Path, entries_dir: Path, cov,
                    "                  verbatim, extent_text, undrawn_part) "
                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rule_rows)
     cov.filled("rule", len(rule_rows))
+    db.executemany("INSERT INTO rule_tributary (entry_id, rule_id, includes_tributaries, tributaries_only,"
+                   "                            tributary_excludes) VALUES (?,?,?,?,?)", tributary_rows)
+    cov.filled("rule_tributary", len(tributary_rows))
 
     # THE REACH RUN MUST BE THIS CORPUS'S. A run built before a rule was removed still binds it,
     # and `ruleset` then names a rule the `rule` table does not have — measured on the bundle
