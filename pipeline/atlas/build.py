@@ -1873,7 +1873,7 @@ def build_registry(b: _Build) -> None:
     # (review M2) water flowing into an assigned line becomes its new water's tributary: named, every build
     _in = inflows_to_assigned_lines(graph)
     print(f"  line owners: {len(_in)} blue line(s) flow into an assigned line (their new water's tributaries): "
-          + (", ".join(f"{a} into {b_}" for a, b_ in _in) or "-"))
+          + (", ".join(f"{a} ({how}, on {b_})" for a, b_, how in _in) or "-"))
     # (review L2) a same-code channel beside an assigned line is named by its neighbours (`follow_connections`): what
     # each ended up called, every build
     _nb = unnamed_neighbours_of_assigned_lines(graph)

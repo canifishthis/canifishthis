@@ -239,10 +239,10 @@ def _assigned_world():
     """The worst case for the walk: the braid B (assigned to the Kitsumkalum) is drawn at the SKEENA's order (7) and
     carries the Skeena's code, so neither the parent rule (its code is one of the reach's) nor the order guard (not
     bigger) would stop a climb into the Skeena. Flow: the Skeena above (SU) splits into the braid at its top and its
-    main line (SM); the Kitsumkalum (K, order 5) and a creek (C, the Skeena's code extended) join the braid; a Skeena
-    creek (ST) joins the Skeena above; a Kitsumkalum creek (KT) joins the Kitsumkalum.
+    main line (SM); the Kitsumkalum (K, order 5) and a creek (C, the Skeena's code extended) join the braid, the creek with
+    its feeder (CF); a Skeena creek (ST) joins the Skeena above; a Kitsumkalum creek (KT) joins the Kitsumkalum.
 
-        ST:0 -> SU:0 -> B:0 -> SM:0          K:0 -> B:0        C:0 -> B:0        KT:0 -> K:0
+        ST:0 -> SU:0 -> B:0 -> SM:0      K:0 -> B:0      CF:0 -> C:0 -> B:0      KT:0 -> K:0
                 SU:0 ------------> SM:0
     """
     import dataclasses
@@ -250,11 +250,12 @@ def _assigned_world():
     mark = (NameTuple("Kitsumkalum River", NameSource.gazette, gnis_id=KI, note=f"{N.LINE_OWNER_NOTE}; x"),)
     nodes = [_w("SU:0", order=7, wsc=WSC_SK), _w("SM:0", order=7, wsc=WSC_SK),
              dataclasses.replace(_w("B:0", order=7, wsc=WSC_SK), name_tuples=mark),
-             _w("K:0", order=5, wsc=WSC_KI), _w("KT:0", order=1, wsc=WSC_KI + "-111111"),
-             _w("C:0", order=1, wsc=WSC_SK + "-100000"), _w("ST:0", order=2, wsc=WSC_SK + "-200000")]
+             dataclasses.replace(_w("K:0", order=5, wsc=WSC_KI), gnis_id=KI), _w("KT:0", order=1, wsc=WSC_KI + "-111111"),
+             _w("C:0", order=1, wsc=WSC_SK + "-100000"),
+             _w("CF:0", order=1, wsc=WSC_SK + "-100000-500000"), _w("ST:0", order=2, wsc=WSC_SK + "-200000")]
     edges = [("ST:0", "SU:0", "confluence"), ("SU:0", "B:0", "confluence"), ("SU:0", "SM:0", "continuation"),
              ("B:0", "SM:0", "confluence"), ("K:0", "B:0", "confluence"), ("C:0", "B:0", "confluence"),
-             ("KT:0", "K:0", "confluence")]
+             ("KT:0", "K:0", "confluence"), ("CF:0", "C:0", "confluence")]
     return _g(nodes, edges)
 
 
@@ -265,11 +266,17 @@ def test_the_new_waters_walk_never_climbs_its_assigned_lines_old_water():
     from pipeline.atlas.graph import tributaries as T
     g = _assigned_world()
     assert N.is_assigned_line(g.nodes["B:0"]) and not N.is_assigned_line(g.nodes["SU:0"])
-    assert T.tributaries_of_reach(g, {"K:0", "B:0"}) == {"KT:0", "C:0"}
+    assert T.tributaries_of_reach(g, {"K:0", "B:0"}) == {"KT:0", "C:0", "CF:0"}
     assert T._reach_codes(g, {"K:0", "B:0"}) == frozenset({WSC_KI})         # the braid's (the Skeena's) code is not one
     assert T._refusal(g, "SU:0", "B:0", frozenset({WSC_KI})) == T.RECEIVING_RIVER
     assert T._refusal(g, "C:0", "B:0", frozenset({WSC_KI})) is None
-    assert T.tributaries_of_reach(g, {"SU:0", "SM:0"}) == {"ST:0", "B:0", "K:0", "KT:0", "C:0"}
+    assert T.tributaries_of_reach(g, {"SU:0", "SM:0"}) == {"ST:0", "B:0", "K:0", "KT:0", "C:0", "CF:0"}
+
+
+def test_the_build_names_the_water_an_assignment_brings():
+    """(review M2) the build's log line: the creek whose mouth is on the braid and its feeder above it; never the
+    Skeena (its code is the braid's) nor the Kitsumkalum (the new water's own line)."""
+    assert N.inflows_to_assigned_lines(_assigned_world()) == [("C", "B", "mouth"), ("CF", "B", "above C")]
 
 
 def test_mutation_pin_without_the_policy_the_kitsumkalum_climbs_the_skeena(monkeypatch):

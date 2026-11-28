@@ -273,19 +273,42 @@ def is_assigned_line(node) -> bool:
     return any(str(getattr(t, "note", "") or "").startswith(LINE_OWNER_NOTE) for t in getattr(node, "name_tuples", ()) or ())
 
 
-def inflows_to_assigned_lines(graph: StreamGraph) -> list[tuple[str, str]]:
-    """(T1259, review M2) the blue lines whose mouth lies on an assigned line, as (blk, the assigned line's blk): water
-    flowing into an assigned line becomes its NEW water's tributary (the creek at the Kitsumkalum's braids: his pick
-    "Kitsumkalum tributary"). Printed by every build, so an entry's author sees what an assignment brings with it."""
-    out = set()
+def _owner_gnis(node) -> str:
+    """The gnis of the water a node's line-owner name tuple gives it to ("" when it is not an assigned line)."""
+    return next((str(t.gnis_id) for t in node.name_tuples if str(t.note or "").startswith(LINE_OWNER_NOTE)), "")
+
+
+def inflows_to_assigned_lines(graph: StreamGraph) -> list[tuple[str, str, str]]:
+    """(T1259, review M2) THE WATER AN ASSIGNMENT BRINGS: water flowing into an assigned line becomes its NEW water's
+    tributary (the creek at the Kitsumkalum's braids and its feeder: his pick "Kitsumkalum tributary"). Each blue line,
+    as (blk, the line its mouth is on, how): "mouth" for a line whose mouth lies on an assigned line, "above <blk>" for
+    a line above such a mouth (by code: the mouth's code or one extending it). Never the old water (the mouth's code
+    must extend the assigned line's) nor the new water's own lines (its gnis). Printed by every build, so an entry's
+    author sees what an assignment brings with it."""
+    from pipeline.common.utils import wsc as W
+    out: dict[str, tuple[str, str, str]] = {}
     for nid, n in graph.nodes.items():
-        if not is_assigned_line(n):
+        gid = _owner_gnis(n) if is_assigned_line(n) else ""
+        if not gid:
             continue
         for ei in graph.up_adj.get(nid, ()):
-            src = graph.nodes.get(graph.edges[ei].from_node)
-            if src is not None and src.blk and src.blk != n.blk and not is_assigned_line(src):
-                out.add((str(src.blk), str(n.blk)))
-    return sorted(out)
+            m = graph.nodes.get(graph.edges[ei].from_node)
+            if (m is None or not m.blk or m.blk == n.blk or is_assigned_line(m) or str(m.gnis_id or "") == gid
+                    or not (m.wsc and n.wsc and W.is_strictly_below(m.wsc, n.wsc))):
+                continue
+            out.setdefault(str(m.blk), (str(m.blk), str(n.blk), "mouth"))
+            todo, seen = [m.node_id], {m.node_id}
+            while todo:
+                for ej in graph.up_adj.get(todo.pop(), ()):
+                    x = graph.nodes.get(graph.edges[ej].from_node)
+                    if (x is None or x.node_id in seen or is_assigned_line(x) or not x.wsc
+                            or not (x.wsc == m.wsc or W.is_strictly_below(x.wsc, m.wsc))):
+                        continue
+                    seen.add(x.node_id)
+                    todo.append(x.node_id)
+                    if x.blk and str(x.blk) != str(m.blk):
+                        out.setdefault(str(x.blk), (str(x.blk), str(n.blk), f"above {m.blk}"))
+    return sorted(out.values())
 
 
 def unnamed_neighbours_of_assigned_lines(graph: StreamGraph) -> list[tuple[str, str]]:

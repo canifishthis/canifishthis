@@ -1892,6 +1892,10 @@ def line_owner_gate(graph, registry, entries, bindings, dfo_rows=()) -> None:
             if hit and str(row.get("location_id", "")).split(":")[1:2] == [slug]:
                 bad.append(f"dfo {row['location_id']}: {len(hit)} section(s) of {new}'s assigned lines' old water, "
                            f"e.g. {sorted(hit)[:3]}")
+        print(f"  line owners  {new}: {len(old):,} old-water section(s) (codes {', '.join(sorted(cs))}) checked "
+              f"against {sum(1 for b in bindings if new in ((entries.get(b.entry_id) or {}).get('matched') or ()))} "
+              f"binding(s) of its entries and {sum(1 for r in dfo_rows or () if str(r.get('location_id', '')).split(':')[1:2] == [slug])}"
+              f" DFO place(s) of {slug}: {sum(1 for x in bad if new in x)} through the walk")
     if bad:
         raise LineOwnerGateError("the old water of an assigned line became its new water's tributary:\n  "
                                  + "\n  ".join(bad))
