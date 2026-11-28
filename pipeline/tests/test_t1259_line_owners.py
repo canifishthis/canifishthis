@@ -139,8 +139,8 @@ def test_the_registry_check_stops_a_line_that_did_not_land():
 
 
 def test_the_curated_file_holds_the_kitsumkalum_braids_with_his_words():
-    from pipeline.common.curated import CURATED
-    [e] = N.load_line_owners(CURATED.waters.line_owners)
+    from pipeline.tests import under_test
+    [e] = N.load_line_owners(under_test.curated().waters.line_owners)
     assert (e["blks"], e["water"], e["from"]) == (["360222216", "360222215"], "gnis:3942", "gnis:2936")
     assert "approx. 1.25 km downstream of the CNR bridge" in e["words"]["dfo"]
     assert e["words"]["owner_pick"] == "B: the braids become Kitsumkalum water"
@@ -233,10 +233,10 @@ def test_the_loop_pass_keeps_every_assigned_line():
     from types import SimpleNamespace
     from pipeline.atlas import build as AB
     from pipeline.atlas.graph.prune import loop_keeps
-    from pipeline.common.curated import CURATED
+    from pipeline.tests import under_test
     b = SimpleNamespace(splits=None, _mined=None)
     ex, files, sets = AB.loop_keep_inputs(b, None)
-    assert files.get("a line owner") == CURATED.waters.line_owners
+    assert files.get("a line owner") == under_test.curated().waters.line_owners
     mini = Path(__file__).parent / "fixtures" / "mini" / "curated" / "waters" / "loop_exemptions.json"
     keeps = loop_keeps(mini, {"a line owner": files["a line owner"]}, {})
     assert keeps["360222216"] == ["a line owner"] and keeps["360222215"] == ["a line owner"]
@@ -339,8 +339,8 @@ def test_the_build_stops_when_the_inflows_differ_from_his():
 
 
 def test_the_curated_inflows_are_the_creek_and_its_feeder():
-    from pipeline.common.curated import CURATED
-    [e] = N.load_line_owners(CURATED.waters.line_owners)
+    from pipeline.tests import under_test
+    [e] = N.load_line_owners(under_test.curated().waters.line_owners)
     assert e["inflows"]["blks"] == ["360792160", "360464409"]
     assert e["inflows"]["words"]["owner_pick"] == "Kitsumkalum tributary"
 

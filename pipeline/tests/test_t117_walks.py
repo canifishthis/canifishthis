@@ -226,6 +226,13 @@ UP_ADJ_READERS = {
     ("pipeline/atlas/graph/prune.py", "drop_small_loops"): "T1242 creek-less loop pass: rebuilds the adjacency",
     ("pipeline/atlas/graph/prune.py", "_tail_plan"): "T1242 trial variant (d), never shipped: a creek's way down a loop",
     ("pipeline/atlas/graph/windows.py", "polygon_window"): "a polygon's inlets, one level, for its window",
+    # T1259 line owners: reports and a check over the build's graph, never a rule's walk (they bind nothing; what is a
+    # tributary is the walk's `may_enter`, `AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER`)
+    ("pipeline/atlas/graph/names.py", "inflows_to_assigned_lines"):
+        "the lines whose mouth is on an assigned line and those above them by code, for the build's log and the "
+        "accepted-inflows check (`check_line_owner_inflows`)",
+    ("pipeline/atlas/graph/names.py", "unnamed_neighbours_of_assigned_lines"):
+        "an assigned line's same-code neighbours, one level, for the build's log",
     ("pipeline/atlas/splits/sectionizer.py", "split_graph_at"): "rebuilds the adjacency",
     ("pipeline/atlas/splits/braid_sweep.py", "_rebuild_adj"): "rebuilds the adjacency after a re-home",
     ("pipeline/atlas/waters/added_streams/ingest.py", "attach_connectors"): "adds edges",

@@ -409,7 +409,10 @@ REACH_FILES = {
     "cuts": "waters.cuts",
     # (T1250) the steelhead barrier list holds water out of the Pacific streams (RULINGS S14): a row added, moved or
     # removed changes the presence set, so editing the list must rerun the reach step
-    "steelhead_barriers": "waters.steelhead_barriers"}
+    "steelhead_barriers": "waters.steelhead_barriers",
+    # (T1259) the reach gate (`reach.build.line_owner_gate`) refuses on the owner's line assignments: an entry added
+    # or changed must rerun the step, or a build would pass on the old list
+    "line_owners": "waters.line_owners"}
 
 #: (T1229) CURATED FILES A STAGE READS WHOSE CONTENT NEEDS NO PART OF ITS KEY: {stage: {leaf: why}}. The guard
 #: (`test_stage_content_keys.py`) fails on a curated leaf a stage reads that is in none of its content parts
