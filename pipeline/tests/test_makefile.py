@@ -169,6 +169,15 @@ def _alive(pid: int) -> bool:
     return True
 
 
+def _signals_at_default() -> None:
+    """Run in the child before exec (T1274): the signals app-dev.sh traps start at their default action. A runner
+    started under `nohup` ignores SIGHUP, every child inherits that, and bash cannot trap a signal ignored on entry, so
+    the hang-up was ignored and the test timed out at 13 s (each known failed before_pr was detached with nohup)."""
+    import signal
+    for s in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
+        signal.signal(s, signal.SIG_DFL)
+
+
 def _run_app_dev(tmp_path: Path, tiles_tail: str, web_tail: str, signal_to_send=None, wait_s: float = 8):
     """Start the script with the stand-ins; send `signal_to_send` once both stand-ins have recorded their PIDs (or none,
     and let it end by itself). Returns (rc, stderr, the stand-in PIDs). Cleans up by PID, only those recorded."""
@@ -179,7 +188,7 @@ def _run_app_dev(tmp_path: Path, tiles_tail: str, web_tail: str, signal_to_send=
         "APP_DEV_TILES_CMD": _stand_in(tiles_rec, tiles_tail), "APP_DEV_WEB_CMD": _stand_in(web_rec, web_tail),
         "TILE_PORT": str(_free_port()), "APP_DEV_WEB_PORT": str(_free_port())}
     proc = subprocess.Popen(["bash", str(APP_DEV)], cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            text=True)
+                            text=True, preexec_fn=_signals_at_default)
     pids: list[int] = []
 
     def recorded() -> list[int]:

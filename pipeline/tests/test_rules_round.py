@@ -706,10 +706,97 @@ def test_the_rancheria_alternative_reaches_the_basin_streams():
                                "item_id": "area:basin:200-"}]
 
 
-def test_export_pins_match_the_corpus():
-    """The export's pinned lists (the bundle carries no tributary scope) equal the corpus."""
-    from pipeline.deliver.export import closures as export_closures
+# ---------------------------------------------------------------------------------------------
+# T679 #12 (owner 2026-11-27 "derive from data but in 0.10"): the export's two tributary lists are
+# read off the bundle (`closures.tributary_scope_sets`), no id list in code. The no-data test pins
+# the reading on a hand-built bundle; the built-data test re-derives both sets from the curated
+# corpus (not from a frozen id list, which a legitimate corpus edit would break) and holds the
+# rulings' own waters: T10 Dinosaur r1, T5 the Squamish, T7 lower Michel under the Elk's row.
+# ---------------------------------------------------------------------------------------------
+PITT, POWELL = "r2:pitt_river@2-8", "r2:powell_lake@2-12"
+DINOSAUR = "r7:dinosaur_lake_reservoir_downstream_of_w_a_c_bennett_dam@7-31"
+SQUAMISH, ELK_T = "r2:squamish_river_s_tributaries@2-6", "r4:elk_river_s_tributaries_see_exceptions@4-2+4-23"
+
+
+def _mini_bundle(path, entries, rules):
+    """A bundle with only what `tributary_scope_sets` reads: `entries` {entry_id: row flag}, `rules` [(entry_id,
+    rule_id, undrawn_part, closure, (own, only, excludes) | None)]."""
+    from pipeline.deliver.bundle.build import SCHEMA
+    db = sqlite3.connect(path)
+    db.executescript(SCHEMA.read_text())
+    db.executemany("INSERT INTO entry (entry_id, includes_tributaries) VALUES (?,?)", entries.items())
+    for e, r, part, closure, scope in rules:
+        db.execute("INSERT INTO rule (entry_id, rule_id, type, family, dimension, label, parts, take, may_target, "
+                   "undrawn_part, closure_grade) VALUES (?,?,'retention_limit','retention','fish','l','{}',?,?,?,?)",
+                   (e, r, 0 if closure else 1, 0 if closure else None, part, "full" if closure else None))
+        if scope is not None:
+            own, only, ex = scope
+            db.execute("INSERT INTO rule_tributary VALUES (?,?,?,?,?)",
+                       (e, r, own, only, json.dumps(ex) if ex else None))
+    db.commit()
+    db.close()
+    return path
+
+
+def test_tributary_scope_sets_refuses_a_bundle_without_the_rule_tributary_table(tmp_path):
+    """An old bundle (no `rule_tributary`) is refused by the export's own `_need`, naming the file and the rebuild
+    command, not a raw `sqlite3.OperationalError`."""
+    import pytest
+    from pipeline.deliver.export.closures import tributary_scope_sets
+    b = tmp_path / "old.sqlite"
+    db = sqlite3.connect(b)
+    db.execute("CREATE TABLE rule (entry_id, rule_id)")
+    db.commit()
+    db.close()
+    with pytest.raises(SystemExit) as e:
+        tributary_scope_sets(b)
+    msg = str(e.value)
+    assert str(b) in msg and "rule_tributary" in msg and "python -m pipeline.deliver.bundle" in msg
+
+
+def test_tributary_scope_sets_read_the_rules_own_scope(tmp_path):
+    """Three-valued (AGENTS 9): an undrawn part reaches tributaries by its own flag, else its row's, or
+    `tributaries_only`; its own 0 under a row that includes them stays out (Pitt River r2). Only a CLOSURE whose
+    carve-out walks past the excepted water names its row. MUTATION: reading the row's flag over the rule's own
+    (`own or row`) puts `e:pitt::r2` in; dropping the closure test puts `e:fly` in."""
+    from pipeline.deliver.export.closures import tributary_scope_sets
+    past = [{"op": "whole", "item_id": "gnis:1", "walk_past": True}]
+    b = _mini_bundle(tmp_path / "b.sqlite", {"e:star": 1, "e:pitt": 1, "e:plain": None, "e:sq": None,
+                                              "e:fly": None, "e:stop": None},
+                     [("e:star", "r1", "near the dam", False, None),             # inherits the row's yes
+                      ("e:pitt", "r2", "the side channel", False, (0, 0, None)),  # its own no
+                      ("e:plain", "r1", "the north arm", False, (1, 0, None)),    # its own yes
+                      ("e:plain", "r2", "the south arm", False, (None, 1, None)), # tributaries only
+                      ("e:plain", "r3", "", False, (1, 0, None)),                 # drawn: no note
+                      ("e:sq", "r1", None, True, (None, 0, past)),                # closure, walks past
+                      ("e:fly", "r1", None, False, (None, 0, past)),              # not a closure
+                      ("e:stop", "r1", None, True, (None, 0, [{"op": "whole", "item_id": "gnis:2"}]))])
+    undrawn, excepted = tributary_scope_sets(b)
+    assert undrawn == ["e:plain::r1", "e:plain::r2", "e:star::r1"]
+    assert excepted == ["e:sq"]
+
+
+def test_tributary_row_keeps_a_false_flag():
+    """`rule.conditions` drops a false flag; `rule_tributary` keeps it, and has no row for a rule that says nothing."""
+    from types import SimpleNamespace as N
+    from pipeline.deliver.bundle.rules.row import tributary_row
+    assert tributary_row("e", N(rule_id="r", includes_tributaries=None, tributaries_only=False,
+                                tributary_excludes=[])) is None
+    assert tributary_row("e", N(rule_id="r", includes_tributaries=False, tributaries_only=False,
+                                tributary_excludes=[])) == ("e", "r", 0, 0, None)
+    assert tributary_row("e", N(rule_id="r", includes_tributaries=None, tributaries_only=True,
+                                tributary_excludes=[{"op": "whole", "walk_past": True}])) == (
+        "e", "r", None, 1, '[{"op":"whole","walk_past":true}]')
+
+
+@pytest.mark.needs_bundle
+def test_the_bundles_tributary_sets_are_the_corpus(db):
+    """The two sets read off the built bundle are the curated corpus's own (every synopsis rule, its scope three-valued,
+    a closure by the one predicate) and hold the rulings' waters. The bundle also carries non-synopsis rows (DFO
+    places, local closures), so those of its sets come from a row the synopsis does not hold: none today."""
     from pipeline.atlas.reach import classify as K
+    from pipeline.deliver.bundle.rules.predicates import closure_grade
+    from pipeline.deliver.export.closures import tributary_scope_sets
     undrawn, excepted = set(), set()
     for f in sorted(CAT.glob("region-*.json")):
         for e in json.loads(f.read_text())["entries"]:
@@ -718,9 +805,14 @@ def test_export_pins_match_the_corpus():
                     v = r.get("includes_tributaries")
                     if (e.get("includes_tributaries") if v is None else v) or r.get("tributaries_only"):
                         undrawn.add(f"{e['entry_id']}::{r['rule_id']}")
-                if any(t.get("walk_past") and "squamish" in e["entry_id"]
-                       for t in r.get("tributary_excludes") or []):
+                if closure_grade(r) and any(t.get("walk_past") for t in r.get("tributary_excludes") or []):
                     excepted.add(e["entry_id"])
-    assert undrawn == set(export_closures.UNDRAWN_PART_TRIBUTARIES)
-    assert excepted == set(export_closures.EXCEPTED_RIVERS_CREEKS_CLOSED)
+    got_undrawn, got_excepted = tributary_scope_sets(BUNDLE)
+    assert set(got_undrawn) == undrawn and set(got_excepted) == excepted
+    assert f"{DINOSAUR}::dinosaur_lake.r1" in undrawn                        # RULINGS T10
+    assert not {f"{PITT}::pitt_river.r2", f"{POWELL}::powell_lake.r2"} & undrawn   # their own "no" (AGENTS 9)
+    assert {SQUAMISH, ELK_T} <= excepted                                     # RULINGS T5, T7
+    own = dict(((e, r), v) for e, r, v in db.execute("SELECT entry_id, rule_id, includes_tributaries "
+                                                     "FROM rule_tributary"))
+    assert own[(PITT, "pitt_river.r2")] == 0 and own[(POWELL, "powell_lake.r2")] == 0
     assert K.UNDRAWN_PART_DOES_NOT_WALK
