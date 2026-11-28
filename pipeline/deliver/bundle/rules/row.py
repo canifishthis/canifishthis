@@ -90,6 +90,14 @@ _NOT_CONDITIONS = frozenset({
 })
 
 
+#: (T1273) THE FLAGS WHOSE FALSE IS A STATEMENT, kept in `conditions` when False. `includes_tributaries` is three-valued
+#: (AGENTS 9): unset inherits the row's, false is the rule's own "not its tributaries" (Goat River r1 "catch and release
+#: (mainstem only)" under a ✱ row). Dropped, the false read as unset, and 19 rules' "why it applies" line said
+#: "Covers … and its tributary streams" — 4 of them a lift, a permission or a keep (`answers.display.decided
+#: .covers_tributaries`). Pinned by `test_t1053_sources_words.py::test_t1273_*`.
+THREE_VALUED_FLAGS = frozenset({"includes_tributaries"})
+
+
 def _rule_row(entry_id: str, raw: dict, uncertain: bool, siblings=None, zones=None,
               rules_of=None, unresolved: str | None = None, place_of=None, entries=None,
               closures=None, regions=None, blankets=None, caps=None):
@@ -122,13 +130,14 @@ def _rule_row(entry_id: str, raw: dict, uncertain: bool, siblings=None, zones=No
     # for a rule placement had refused to widen (AGENTS 13). Inheritance is placement's job, and
     # placement has already done it; what a rule binds is in `ruleset`, not here.
     #
-    # No flag in the model means something when False, so False is dropped like any default.
-    # (`v is False`, not `v == False`: `0 == False`, and a zero is a value.)
+    # A flag that means nothing when False is dropped like any default — every one but the THREE-VALUED ones
+    # (`THREE_VALUED_FLAGS`), whose False is a statement. (`v is False`, not `v == False`: `0 == False`, and a zero
+    # is a value.)
     _EMPTY = ((), [], {}, "")
     conditions = {k: v for k, v in dumped.items()
                   if k not in _NOT_CONDITIONS
                   and not any(v is e or v == e for e in _EMPTY)
-                  and v is not False}
+                  and (v is not False or k in THREE_VALUED_FLAGS)}
     # THE CLOCK, ON THE RULES THAT COUNT AND ONLY THOSE. The model leaves `period` unset where the
     # book's default (daily) holds; a counting rule ships its clock outright so no reader has to
     # know the default, and no other rule ships one (1,549 bait bans and boat rules said "daily").
