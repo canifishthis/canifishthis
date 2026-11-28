@@ -31,8 +31,8 @@ from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
 #: bump when the lines this writes change for the same inputs (the tiles' staleness check reads it)
 #: 2: depth_m to 0.1 mm (was 0.1 m); index on the native unit (T1268, feet ladder). 3: the per-sheet ladder; minzoom
-#: in the placed file
-VERSION = 3
+#: in the placed file. 4: the lighter ladder (INDEX_LINES_MAX 4, the middle tier capped at 3x)
+VERSION = 4
 FEET = 0.3048
 #: (named minimum) a piece of a contour line shorter than this after the shoreline cut is dropped (metres on the ground)
 MIN_PIECE_M = 15.0
@@ -60,7 +60,8 @@ def policy() -> dict:
     return {"VERSION": VERSION, "FEET": FEET, "MIN_PIECE_M": MIN_PIECE_M, "CLIP_REPORT_PCT": CLIP_REPORT_PCT,
             "MAX_VERTICES": MAX_VERTICES, "ROUND": ROUND, "DEPTH_DECIMALS": DEPTH_DECIMALS,
             "LAKE_LAYERS": list(LAKE_LAYERS), "NICE_STEPS": list(ladder.NICE_STEPS),
-            "INDEX_LINES_MIN": ladder.INDEX_LINES_MIN, "INDEX_LINES_MAX": ladder.INDEX_LINES_MAX}
+            "INDEX_LINES_MIN": ladder.INDEX_LINES_MIN, "INDEX_LINES_MAX": ladder.INDEX_LINES_MAX,
+            "MIDDLE_LINES_FACTOR": ladder.MIDDLE_LINES_FACTOR}
 
 
 def policy_digest() -> str:

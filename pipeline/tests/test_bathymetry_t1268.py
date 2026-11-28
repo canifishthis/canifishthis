@@ -261,7 +261,7 @@ def test_every_constant_that_shapes_the_lines_is_in_the_policy_digest(monkeypatc
     change the lines while `require_current` still passed the old set."""
     from pipeline.deliver.tiles import ladder as L
     consts = {k for k, v in vars(PC).items() if k.isupper() and isinstance(v, (int, float, tuple)) and k != "COMMAND"}
-    consts |= {"NICE_STEPS", "INDEX_LINES_MIN", "INDEX_LINES_MAX"}
+    consts |= {"NICE_STEPS", "INDEX_LINES_MIN", "INDEX_LINES_MAX", "MIDDLE_LINES_FACTOR"}
     assert consts <= set(PC.policy()), sorted(consts - set(PC.policy()))
     before = PC.policy_digest()
     monkeypatch.setattr(PC, "MIN_PIECE_M", PC.MIN_PIECE_M + 1)
@@ -316,13 +316,18 @@ def test_a_feet_sheet_s_layer_takes_its_zooms_and_index_from_feet(tmp_path, monk
 
 
 def test_the_ladder_is_per_sheet_on_its_own_levels():
-    """The smallest nice step leaving INDEX_LINES_MIN..MAX index levels; the next finer nice step for z12."""
+    """The smallest nice step leaving INDEX_LINES_MIN..MAX index levels; the next finer nice step for z12 when it adds
+    at most MIDDLE_LINES_FACTOR x the index lines (the planning chat's pick A, 2026-11-28)."""
+    assert (ladder.INDEX_LINES_MIN, ladder.INDEX_LINES_MAX, ladder.MIDDLE_LINES_FACTOR) == (2, 4, 3)
     assert ladder.sheet_ladder([1, 2, 3, 4, 5, 6, 7]) == (2, 1)                    # Abruzzi, metres: 2, 4, 6 labelled
-    assert ladder.sheet_ladder(range(10, 130, 10)) == (20, 10)                     # a deep 10-step sheet: 6 index lines
-    for few in ([5, 10, 15], [20, 40, 60], [6, 12, 18, 24, 30, 36]):              # Chief, Heffley: every line labelled
+    assert ladder.sheet_ladder(range(10, 130, 10)) == (50, 20)                     # a deep 10-step sheet: 50, 100
+    # Cowichan's 24 m steps: no nice step leaves 2-4 levels; 120 m alone is its index; the 2 m middle would be 6x: none
+    assert ladder.sheet_ladder([24, 48, 72, 96, 120, 144]) == (5, None)
+    for few in ([5, 10, 15], [20, 40, 60], [1, 2, 3, 4]):                          # Chief, Heffley: every line labelled
         steps = ladder.sheet_ladder(few)
         assert all(ladder.depth_line_zoom(v, steps) == (11, True) for v in few)
-    assert ladder.sheet_ladder([7]) == (7.0, 7.0) and ladder.depth_line_zoom(7, (7.0, 7.0)) == (11, True)
+    assert ladder.sheet_ladder([7]) == (7.0, None) and ladder.depth_line_zoom(7, (7.0, None)) == (11, True)
+    assert ladder.depth_line_zoom(48, (5, None)) == (13, False)
     with pytest.raises(ValueError, match="no depth level"):
         ladder.sheet_ladder([])
 
