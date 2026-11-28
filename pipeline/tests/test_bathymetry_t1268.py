@@ -138,7 +138,7 @@ def test_only_withdrawn_rows_draw_an_empty_layer_without_a_placed_set(tmp_path):
     out = tmp_path / "layers"
     out.mkdir()
     gone = dict(_row(), status="withdrawn", withdrawn={"reason": "owner_marked_unsure"})
-    assert export.export_contours(out, placings=_placings_file(tmp_path, [gone]), placed=tmp_path / "nowhere") == \
+    assert export.export_contours(out, _reg(tmp_path), placings=_placings_file(tmp_path, [gone]), placed=tmp_path / "nowhere") == \
         {"depth_contour": 0}
 
 
@@ -155,6 +155,33 @@ def test_old_lines_are_refused_after_a_new_freeze(tmp_path):
 
 # ---------------------------------------------------------------------------------------------- the tiles read it
 
+def _reg(tmp_path, ids=("wbk:1", "wbk:2")):
+    d = tmp_path / "atlas"
+    d.mkdir(exist_ok=True)
+    (d / "registry.json").write_text(json.dumps({"items": [{"id": i} for i in ids]}))
+    return d
+
+
+def test_a_lake_item_the_new_atlas_does_not_hold_is_refused_naming_the_row(tmp_path):
+    with pytest.raises(PC.UnknownLakeItem, match=r"00000001 wbk:1 item wbk:1"):
+        PC.require_items([_row()], PC.registry_ids(_reg(tmp_path, ids=("wbk:2",))), tmp_path / "atlas")
+    PC.require_items([_row()], PC.registry_ids(_reg(tmp_path)), tmp_path / "atlas")
+    with pytest.raises(FileNotFoundError, match="no registry"):
+        PC.registry_ids(tmp_path / "nowhere")
+
+
+def test_the_tiles_refuse_lines_whose_lake_left_the_atlas(tmp_path, monkeypatch):
+    inputs = {"placings_sha256": "p", "vectors_sha256": "v", "version": 1}
+    placed = tmp_path / "placed"
+    PC.write(placed, *_build([_row()], {1: box(-1e3, -1e3, 1e3, 1e3)}, inputs=inputs))
+    monkeypatch.setattr(PC, "inputs_now", lambda *a, **k: inputs)
+    out = tmp_path / "layers"
+    out.mkdir()
+    with pytest.raises(PC.UnknownLakeItem, match="placed_contours"):
+        export.export_contours(out, _reg(tmp_path, ids=("wbk:2",)), placings=_placings_file(tmp_path, [_row()]),
+                               placed=placed)
+
+
 def _placings_file(tmp_path, rows):
     p = tmp_path / "placings.json"
     p.write_text(json.dumps(_frozen(rows)))
@@ -164,7 +191,7 @@ def _placings_file(tmp_path, rows):
 def test_no_frozen_row_draws_an_empty_layer(tmp_path):
     out = tmp_path / "layers"
     out.mkdir()
-    assert export.export_contours(out, placings=_placings_file(tmp_path, []), placed=tmp_path / "nowhere") == \
+    assert export.export_contours(out, _reg(tmp_path), placings=_placings_file(tmp_path, []), placed=tmp_path / "nowhere") == \
         {"depth_contour": 0}
 
 
@@ -173,7 +200,7 @@ def test_frozen_rows_with_no_placed_set_raise_never_skip(tmp_path, monkeypatch):
     out.mkdir()
     monkeypatch.setattr(PC, "inputs_now", lambda *a, **k: {"placings_sha256": "p", "vectors_sha256": "v", "version": 1})
     with pytest.raises(PC.StalePlacedContours, match="placed_contours"):
-        export.export_contours(out, placings=_placings_file(tmp_path, [_row()]), placed=tmp_path / "nowhere")
+        export.export_contours(out, _reg(tmp_path), placings=_placings_file(tmp_path, [_row()]), placed=tmp_path / "nowhere")
 
 
 def test_the_layer_carries_item_depth_and_index_and_the_ladder(tmp_path, monkeypatch):
@@ -190,7 +217,7 @@ def test_the_layer_carries_item_depth_and_index_and_the_ladder(tmp_path, monkeyp
     monkeypatch.setattr(PC, "inputs_now", lambda *a, **k: inputs)
     out = tmp_path / "layers"
     out.mkdir()
-    assert export.export_contours(out, placings=_placings_file(tmp_path, rows), placed=placed) == {"depth_contour": 2}
+    assert export.export_contours(out, _reg(tmp_path), placings=_placings_file(tmp_path, rows), placed=placed) == {"depth_contour": 2}
     feats = [json.loads(l) for l in (out / "depth_contour.geojsonl").read_text().splitlines()]
     got = sorted((f["properties"].get("depth_m"), f["properties"].get("index"), f["tippecanoe"]["minzoom"],
                   f["properties"]["item"]) for f in feats)

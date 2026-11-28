@@ -82,6 +82,33 @@ def require_current(directory: Optional[Path] = None, *, inputs: Optional[dict] 
     return lines
 
 
+class UnknownLakeItem(RuntimeError):
+    pass
+
+
+def registry_ids(build_dir: Path) -> set:
+    """Every item id of the atlas build at `build_dir` (its registry.json)."""
+    import orjson
+    p = Path(build_dir) / "registry.json"
+    if not p.is_file():
+        raise FileNotFoundError(f"{p}: no registry; the atlas build is not complete")
+    return {it["id"] for it in orjson.loads(p.read_bytes())["items"]}
+
+
+def require_items(rows: Iterable[Mapping], ids: set, build_dir: Path) -> None:
+    """EVERY shipping row's lake item id is an item of the atlas being built, or this RAISES naming each row, lake and
+    item (AGENTS 5: item_id is 99.88 % durable across a rebuild, not 100; AGENTS 12: report, never drop in silence).
+    An absorbed id is NOT mapped to its survivor here: AGENTS 55 allows that at exactly three read points and requires
+    curated files to name survivors only, so a frozen row naming a gone item is a curated fix (the owner's placing
+    withdrawn / re-accepted on the surviving item), never a quiet remap in a build step."""
+    bad = [f"{r['sheet']} {lk['wbk']} item {lk['item']}" for r in rows for lk in r["lakes"] if lk["item"] not in ids]
+    if bad:
+        raise UnknownLakeItem(f"{len(bad)} frozen depth placing(s) name a lake item the atlas at {build_dir} does not "
+                              f"hold: {'; '.join(bad)}. Nothing is drawn: fix those rows in "
+                              "data/curated/bathymetry/placings.json (a withdrawal and a new acceptance on the "
+                              f"surviving item), then {COMMAND}")
+
+
 def lake_outlines(gpkg: Path, wbks: Iterable[int]) -> Dict[int, object]:
     """WATERBODY_KEY -> its FWA outline (the union of its polygons over `LAKE_LAYERS`), EPSG:3005."""
     import pyogrio
@@ -254,6 +281,8 @@ def main(argv=None) -> int:
     ap.add_argument("--check", action="store_true", help="is the placed set current for the frozen file? no work")
     ap.add_argument("--out", type=Path, help="another folder (a side run); default GENERATED.bathymetry/placed")
     ap.add_argument("--gpkg", type=Path, help="default SOURCE.fwa_gpkg")
+    ap.add_argument("--build", type=Path, help="the atlas build whose registry the lake items must be in "
+                                                "(default: the configured build, GENERATED.require_build())")
     a = ap.parse_args(argv)
     from pipeline.bathymetry import e00, placings, vectors
     from pipeline.common.curated import SOURCE
@@ -267,6 +296,9 @@ def main(argv=None) -> int:
         return 0
     inputs = inputs_now()
     rows = placings.shipping(frozen)
+    from pipeline.common.curated import GENERATED
+    build_dir = Path(a.build) if a.build else GENERATED.require_build()
+    require_items(rows, registry_ids(build_dir), build_dir)
     wbks = [int(lk["wbk"].split(":")[1]) for r in rows for lk in r["lakes"]]
     outlines = lake_outlines(Path(a.gpkg or SOURCE.fwa_gpkg), wbks)
 

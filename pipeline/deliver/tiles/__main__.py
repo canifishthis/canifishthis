@@ -113,7 +113,7 @@ def main() -> None:
     counts: dict[str, int] = {}
     print("admin geography")
     counts |= export.export_admin(a.gpkg, layer_dir)
-    counts |= export.export_contours(layer_dir)          # (T1268) the frozen depth placings' lines only
+    counts |= export.export_contours(layer_dir, build_dir)          # (T1268) the frozen depth placings' lines only
     # THE FIELD, for the zooms where a river is a hairline — see tiles/basins.py. Grouped
     # with admin geography rather than with water because it is neither: it is the ground a
     # reading is a claim about, and it draws only below the zoom the rivers take over at.

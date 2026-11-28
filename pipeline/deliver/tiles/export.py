@@ -1048,7 +1048,7 @@ def export_admin(gpkg: str, out_dir: Path) -> dict:
     return {lname: close() for lname, (_, close) in writers.items()}
 
 
-def export_contours(out_dir: Path, *, placings: Path | None = None, placed: Path | None = None) -> dict:
+def export_contours(out_dir: Path, build_dir: Path, *, placings: Path | None = None, placed: Path | None = None) -> dict:
     """(T1268) The placed lake depth lines, `depth_contour`: ONLY the frozen placings' lines
     (`pipeline.bathymetry.placed_contours`), the SHIPPING view only. No shipping row: the layer is empty. Shipping rows and
     the placed set missing or made from other inputs: RAISES naming the command (W46; it used to skip a missing gpkg
@@ -1063,6 +1063,8 @@ def export_contours(out_dir: Path, *, placings: Path | None = None, placed: Path
         print(f"  {'depth_contour':<16} <- no shipping frozen placings (bathymetry/placings.json): empty")
         return {"depth_contour": 0}
     lines = placed_contours.require_current(placed, inputs=placed_contours.inputs_now(placings))
+    # every lake item the lines carry must be an item of THIS atlas (a re-cut builds a new one): refused, never dropped
+    placed_contours.require_items(_placings.shipping(frozen), placed_contours.registry_ids(build_dir), build_dir)
     tf = Transformer.from_crs(3005, 4326, always_xy=True)
     write, close = _writer(out_dir, spec)
     nbytes = 0
