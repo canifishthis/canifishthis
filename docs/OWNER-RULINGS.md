@@ -393,6 +393,9 @@ his words (verbatim, his spelling); "Reading:" is the planning chat's plain read
 - **Turner Creek's tidal limit (T1246):** "tidal limit is rail bridge again I think. like noons". Built: the lowest
   126 m, below the Ioco Spur crossing, is tidal (OSM shows no bridge there: it may be a culvert).
 - **Tunnel Creek's Seymour leave-out row (T1246):** "(a) Remove the row too (Recommended)". Removed.
+- **The export's two tributary id lists (T679 #12, 2026-11-27):** "derive from data but in 0.10" (earlier: "what lists?
+  i generally would say to derive from data but i dont understand what must carry tributary scope implies"). Reading:
+  the bundle carries each rule's own tributary scope and carve-outs; the export derives both lists (was: lists in code).
 - **MacMillan Creek's channel to Diana Lake (360244113:889, 2026-11-27/28):** "not into skeena ..."; "so we jsut decided that macmillan doesnt get skeena riles so this is mute ..."; "i thought we went over this??". It is not Skeena water and does not take the Skeena River's own row; built after 0.10.0 with the outflow guard (T1164 item 2; words in full: OWNER-UNFILED).
 
 ## Known, not new (the audit's finds he had already ruled on)

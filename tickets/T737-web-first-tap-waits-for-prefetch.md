@@ -1,10 +1,10 @@
 # T737 — Web: the first river click waits for the background download of the whole release files
 
-Status: IN PROGRESS — a43e750b9, e974cabf7, 673b1d8e3, bf23b3819, b35f91e0b, d29bb35ca, 1a6b29c17; fix on branch and deployed with the websites; the smoke first-tap step is built (opt-in); left: after 0.10.0, a lane measures the tap ahead of the start-up downloads and brings him the numbers before anything is built (owner 2026-11-28); owner: see ## Owner (the speed-up list). (Earlier note: IN PROGRESS (fix a43e750b9; unnamed-stream background order e974cabf7; multi-region water 673b1d8e3; the ahead lane + unnamed reads together bf23b3819, b35f91e0b: all on `redesign/stream-sections` (2026-11-14/15) and on the staging and production websites since; the smoke's first-tap step (item 4) is built (lane L3 2026-11-20, d29bb35ca); left (Claude): main chat review + merge; region slices of regs-sid/down/lines are the owner's call))
+Status: IN PROGRESS — item 0 (start-up downloads after the first tap, the owner's pick) built on branch perf/T737-startup-downloads-after-the-first-tap (head c916e5277, unpushed), measured: no gain on the first tap, NOT merged; nothing left for item 0 unless the owner asks for the gate. Left as before: region slices of geo/lines/regs-sid/down and a page shell at 100 ms are the owner's call. The slow-line wait is T1266, the other speed-ups T1271. IN PROGRESS — a43e750b9, e974cabf7, 673b1d8e3, bf23b3819, b35f91e0b, d29bb35ca, 1a6b29c17; fix on branch and deployed with the websites; the smoke first-tap step is built (opt-in); left: after 0.10.0, a lane measures the tap ahead of the start-up downloads and brings him the numbers before anything is built (owner 2026-11-28); owner: see ## Owner (the speed-up list). (Earlier note: IN PROGRESS (fix a43e750b9; unnamed-stream background order e974cabf7; multi-region water 673b1d8e3; the ahead lane + unnamed reads together bf23b3819, b35f91e0b: all on `redesign/stream-sections` (2026-11-14/15) and on the staging and production websites since; the smoke's first-tap step (item 4) is built (lane L3 2026-11-20, d29bb35ca); left (Claude): main chat review + merge; region slices of regs-sid/down/lines are the owner's call))
 
 | id | title | status | commits | what's left |
 |---|---|---|---|---|
-| T737 | Web: the first river click waits for the background download of the whole release files (owner: "The first river click takes a very long time to open"; 8-9 s on staging when clicked 3-6 s after the map paints) | IN PROGRESS — tap first, start-up downloads after (owner 2026-11-28): measure first, numbers to him before building | a43e750b9, e974cabf7, 673b1d8e3, bf23b3819, b35f91e0b, d29bb35ca, 1a6b29c17 | after 0.10.0: measure the tap ahead of the start-up downloads, numbers to him before building; the easy speed-ups list to him |
+| T737 | Web: the first river click waits for the background download of the whole release files (owner: "The first river click takes a very long time to open"; 8-9 s on staging when clicked 3-6 s after the map paints) | IN PROGRESS — item 0 (tap first, owner 2026-11-28) built on a branch, measured: no gain, not merged | a43e750b9, e974cabf7, 673b1d8e3, bf23b3819, b35f91e0b, d29bb35ca, 1a6b29c17 | nothing for item 0 unless the owner asks for the gate (branch perf/T737-startup-downloads-after-the-first-tap, c916e5277); region slices / page shell as above; slow-line wait T1266, speed-ups T1271 |
 
 Source: owner 2026-11-14 evening, verbatim: "On staging.canifishthis.ca  The first river click takes a very long time
 to open". Staging = b2dba0297 (app 0.7.10) on release r-f749475d0962. The staging smoke's "tap a named water" step said
@@ -45,6 +45,27 @@ Done (web only; nothing on a page changes):
 Measurements, scripts, JSON: `~/bcfish-session-backup-2026-11-12/first-click-web/` (`results.md`, `multi-1115/`
 `measure.mjs --complete --initiators`, `lane-1115/`).
 
+## Work: item 0, "Tap first, start-up downloads after" (2026-11-28) — built, measured, NOT merged
+Built on branch `perf/T737-startup-downloads-after-the-first-tap`, head `c916e5277` (kept, unpushed): a start gate
+(`release/startGate.ts`, `useStartGate`) holding whole `core`, the background tier and the bait & fly (`method`) read until
+the reader's first ask is answered, or 15 s with none; region regs file and every on-demand read unchanged; phone untouched.
+Method: Playwright + Chromium, 390x844, slow 4G = 1.6 Mbps / 750 kbps up / 150 ms / CPU 4x (good 4G 9 Mbps, wifi), fresh
+profile, first tap on an unnamed stream 3 s after the map is usable; before = origin/main, after = the branch, both local
+web builds against release r-71d09ad82e81 (a main build does not answer taps against staging's data); n = 3, medians.
+
+| line | metric | before | after |
+|---|---|---|---|
+| slow 4G, not flagged slow | first tap answer / Salmon pressed first | 17.2 s / 11.0 s | 16.8 s / 9.5 s |
+| slow 4G, app flags "Slow connection" | first tap answer | 15.4 s | 15.5 s |
+| good 4G | map usable / answer | 5.1 s / 4.8 s | 4.9 s / 4.6 s |
+| wifi | map usable / answer | 0.9 s / 1.0 s | 0.7 s / 0.8 s |
+
+Result: no gain on the first tap (-0.4 s, 2 %, on one slow line; the rest inside noise). Why: main's own low-bandwidth mode
+already holds whole `core` and the background tier on a slow line (the app flags "Slow connection" from its own meter);
+the earlier -9.6 s was measured by blocking files on an older staging build. Not merged. If the gate is ever revived: the
+finfish-closure salmon read must never be behind it (a stretch DFO closed to all fishing would paint open meanwhile; review
+finding). The real slow-line wait is T1266 (the map ignores a first tap for about 12 s); the other speed-ups are T1271.
+
 ## Work (left: the owner's call, see ## Owner)
 - An unnamed tap at 3 s is still the two whole files' 2.4 MB on the line (`regs-sid` 1.25 MB, `down` 1.17 MB; ~2.5 s at
   ~16 Mbit/s): at 3 s nothing is fetched ahead yet (the lane yields to the boot's own reads, incl. the in-season check's
@@ -76,3 +97,4 @@ Depends: none. Size: S. Owner: no (a look after the next staging deploy).
 
 - [x] 2026-11-15 — Your call: cut region slices of geo / lines / regs-sid / down, and a page shell at 100 ms, from the first web tap's wait? (left of this ticket). → "Measure it first" (2026-11-27). Measured on staging (night notes `owner-questions/T737/`): cold tap to answer 1.2 s wifi / 2.2 s good 4G / about 20 s slow 4G; the tap's 1.27 MB competes with about 4 MB of start-up downloads; region slices save about 15 %. Then: "Tap first, start-up downloads after (Recommended)" (2026-11-28).
 - [ ] 2026-11-28 — His follow-up: "are there no other easy speedups?" (2026-11-28). A speed-up hunt is running; its ranked list comes to him.
+- [x] 2026-11-28 — ANSWERED: "Tap first, start-up downloads after (Recommended)" (item 0 of the first-tap measurement; built and measured, no gain, not merged: see Work).
