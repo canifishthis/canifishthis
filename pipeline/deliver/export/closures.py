@@ -14,6 +14,7 @@ from pathlib import Path
 from pipeline.deliver import calendar as CAL
 from pipeline.regs.parsing import catalogue as C
 from pipeline.common import entry_id as EID
+from pipeline.deliver.export.contract import _need
 from pipeline.deliver.export.dictionary import _name
 from pipeline.deliver.export.verdicts import answer_on, rule_keys_of, verdicts_of
 
@@ -69,7 +70,8 @@ def with_closure_gotchas(g: dict, d: dict, bundle: Path) -> dict:
     undrawn, excepted = tributary_scope_sets(bundle)
     stray = sorted(set(undrawn) - set(d["rules"])) + sorted(set(excepted) - set(d["entries"]))
     if stray:
-        raise SystemExit(f"export: the bundle's tributary scope names records the export does not hold: {stray[:5]}")
+        raise SystemExit(f"export: the bundle's tributary scope names records the export does not hold: {stray[:5]}. "
+                         f"Rebuild the bundle with `python -m pipeline.deliver.bundle`.")
     g["gotchas"]["excepted_rivers_creeks_stay_closed"] = {
         "says": "A row closing its tributaries 'EXCEPT' some named rivers excepts those rivers' "
                 "OWN channels only: a creek flowing into an excepted river is still a tributary of "
@@ -592,7 +594,7 @@ def closures_combine_problems(entries: dict, bundle: Path) -> list[str]:
 
 
 def tributary_scope_sets(bundle) -> tuple[list[str], list[str]]:
-    """(T679 #12, owner 2026-11-28 "derive from data but in 0.10") `(undrawn, excepted)`, READ OFF THE BUNDLE — the
+    """(T679 #12, owner 2026-11-27 "derive from data but in 0.10") `(undrawn, excepted)`, READ OFF THE BUNDLE — the
     two lists that were id tuples in this file (`UNDRAWN_PART_TRIBUTARIES`, `EXCEPTED_RIVERS_CREEKS_CLOSED`):
 
     - `undrawn` (rule ids `entry::rule`): THE UNDRAWN-PART RULES THAT REACH TRIBUTARIES (user ruling 2026-10-07, RULINGS
@@ -609,6 +611,7 @@ def tributary_scope_sets(bundle) -> tuple[list[str], list[str]]:
     `entry.includes_tributaries`."""
     db = sqlite3.connect(f"file:{bundle}?mode=ro", uri=True)
     try:
+        _need(db, bundle)
         rows = db.execute(
             "SELECT r.entry_id, r.rule_id, r.undrawn_part, r.closure_grade, e.includes_tributaries, "
             "       t.includes_tributaries, t.tributaries_only, t.tributary_excludes "

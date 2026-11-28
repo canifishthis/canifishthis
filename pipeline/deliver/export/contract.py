@@ -76,12 +76,13 @@ RETIRED_TYPES = frozenset({"document_required", "access_permission",
                            "angling_from_vessel_prohibited"})
 
 
-def _need(db: sqlite3.Connection) -> None:
+def _need(db: sqlite3.Connection, bundle=None) -> None:
     missing = [f"{t}.{c}" for t, cols in REQUIRED_COLUMNS.items()
                for c in cols if c not in {r[1] for r in db.execute(f"PRAGMA table_info({t})")}]
     if missing:
         raise SystemExit(
-            f"pipeline.deliver.export: the bundle has no {', '.join(missing)}. Rebuild it with a "
+            f"pipeline.deliver.export: the bundle{f' {bundle}' if bundle else ''} has no {', '.join(missing)}. "
+            f"Rebuild it with `python -m pipeline.deliver.bundle`, from a "
             f"`pipeline/deliver/bundle/rules/` that writes `entry.matched` (every matched "
             f"item, JSON), `rule.unresolved` (the reach run's 'reason: detail', NULL when "
             f"bound), `rule.exempts` (each lift resolved to its entry, JSON), `item.part_of`, "

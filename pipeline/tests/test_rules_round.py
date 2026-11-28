@@ -707,7 +707,7 @@ def test_the_rancheria_alternative_reaches_the_basin_streams():
 
 
 # ---------------------------------------------------------------------------------------------
-# T679 #12 (owner 2026-11-28 "derive from data but in 0.10"): the export's two tributary lists are
+# T679 #12 (owner 2026-11-27 "derive from data but in 0.10"): the export's two tributary lists are
 # read off the bundle (`closures.tributary_scope_sets`), no id list in code. The no-data test pins
 # the reading on a hand-built bundle; the built-data test re-derives both sets from the curated
 # corpus (not from a frozen id list, which a legitimate corpus edit would break) and holds the
@@ -736,6 +736,22 @@ def _mini_bundle(path, entries, rules):
     db.commit()
     db.close()
     return path
+
+
+def test_tributary_scope_sets_refuses_a_bundle_without_the_rule_tributary_table(tmp_path):
+    """An old bundle (no `rule_tributary`) is refused by the export's own `_need`, naming the file and the rebuild
+    command, not a raw `sqlite3.OperationalError`."""
+    import pytest
+    from pipeline.deliver.export.closures import tributary_scope_sets
+    b = tmp_path / "old.sqlite"
+    db = sqlite3.connect(b)
+    db.execute("CREATE TABLE rule (entry_id, rule_id)")
+    db.commit()
+    db.close()
+    with pytest.raises(SystemExit) as e:
+        tributary_scope_sets(b)
+    msg = str(e.value)
+    assert str(b) in msg and "rule_tributary" in msg and "python -m pipeline.deliver.bundle" in msg
 
 
 def test_tributary_scope_sets_read_the_rules_own_scope(tmp_path):

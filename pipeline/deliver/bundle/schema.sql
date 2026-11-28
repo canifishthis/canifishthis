@@ -324,7 +324,7 @@ CREATE TABLE rule (entry_id TEXT NOT NULL, rule_id TEXT NOT NULL,
                           OR (type = 'retention_limit' AND take = 0 AND may_target = 0)),
                    PRIMARY KEY (entry_id, rule_id)) WITHOUT ROWID;
 
--- (T679 #12, owner 2026-11-28 "derive from data but in 0.10") A RULE'S OWN TRIBUTARY SCOPE, as the catalogue states it:
+-- (T679 #12, owner 2026-11-27 "derive from data but in 0.10") A RULE'S OWN TRIBUTARY SCOPE, as the catalogue states it:
 -- one row per rule that states any of it, none for a rule that says nothing. `includes_tributaries` is THREE-VALUED
 -- (AGENTS 9): 1 / 0 the rule's own flag, NULL inherits its row's (`entry.includes_tributaries`). `rule.conditions`
 -- cannot say it: it drops every false flag, so an explicit "not its tributaries" (Pitt River r2 under a ✱ row) read
