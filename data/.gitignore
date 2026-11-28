@@ -7,6 +7,8 @@
 # `git add`. Anchored and explicit now.
 source/temp_bc_data/
 source/bathymetry_pdfs/
+# T1267: the 2001 vector depth zips (187 MB); their sha256 list bathymetry_vectors.sha256.json IS tracked
+source/bathymetry_vectors/
 source/hydat.sqlite3
 # a kept previous HYDAT (update-hydat.sh / T301 keep the old archive as hydat.<YYYYMMDD>.sqlite3, 1.2 GB)
 source/hydat.*.sqlite3

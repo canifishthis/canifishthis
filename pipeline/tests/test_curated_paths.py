@@ -328,7 +328,7 @@ class TestTheWholeFileIsStrict:
                 blob = blob[k]
             return True
         got = {".".join(k): (bool(at), has(stated, k)) for k, at in walk(C.Config) if k[0] in C.TREES}
-        assert len(got) == 82 and all(has(names, k.split(".")) == a for k, (a, _s) in got.items())
+        assert len(got) == 86 and all(has(names, k.split(".")) == a for k, (a, _s) in got.items())
         assert {k for k, (a, s) in got.items() if s} == {"source.fwa_gpkg"}          # the file's one path
         assert not [k for k, (a, s) in got.items() if a == s], "a path named in both places, or in neither"
 
@@ -486,7 +486,7 @@ class TestOneRootPerTree:
             for k in keys[1:]:
                 got = getattr(got, k)
             assert got == C.ROOT / roots[keys[0]] / _at(blob, keys), keys
-        assert len(leaves) == 82                     # +1 T1259: waters/line_owners.json
+        assert len(leaves) == 86                     # +1 T1259: waters/line_owners.json
         assert set(roots) == set(C.Roots.model_fields) == {*C.TREES, "release"}
 
     @pytest.mark.parametrize("at", [("curated", "waters", "cuts"), ("curated", "review", "marks"),
@@ -784,6 +784,8 @@ FROZEN_NAMES = {
     "source.coast_gpkg": "fwa_coast.gpkg",
     "source.synopsis_pdf": "fishing_synopsis.pdf",
     "source.fetch_temp": "temp_bc_data",
+    "source.bathymetry_vectors": "bathymetry_vectors",
+    "source.bathymetry_vectors_sha256": "bathymetry_vectors.sha256.json",
     "curated.waters.cuts": "waters/cuts.json",
     "curated.waters.name_variants": "waters/name_variants.json",
     "curated.waters.found_names": "waters/found_names.json",
@@ -831,6 +833,8 @@ FROZEN_NAMES = {
     "curated.dfo_salmon.tidal_calls": "dfo_salmon/tidal_calls.json",
     "curated.dfo_salmon.scope_places": "dfo_salmon/scope_places.json",
     "curated.dfo_salmon.closed_areas": "dfo_salmon/closed_areas.json",
+    "curated.bathymetry.placings": "bathymetry/placings.json",
+    "curated.bathymetry.sheet_units": "bathymetry/sheet_units.json",
     "curated.bathymetry.matches": "bathymetry/matches.json",
     "curated.bathymetry.contour_matches": "bathymetry/contour_matches.json",
     "curated.stocking.matches": "stocking/matches.json",
