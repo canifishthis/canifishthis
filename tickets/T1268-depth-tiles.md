@@ -4,7 +4,7 @@ Status: IN PROGRESS — depth data lane of the 0.10.0 finish-up chat (branch fea
 
 | id | title | status | commits | what's left |
 |---|---|---|---|---|
-| T1268 | Depth: the placed depth lines and the tiles' depth_contour layer | IN PROGRESS | — | code + tests on the branch; the side tiles build on the baseline atlas (size, parity, pictures); second review, before_pr, PR after T1267 |
+| T1268 | Depth: the placed depth lines and the tiles' depth_contour layer | IN PROGRESS | — | built, side tiles build measured, two reviews MERGE; the PR lands after T1267 (#398) |
 
 Source: owner 2026-11-28, "we want the vector maps in for it" (0.10.0). Parent T201; the frozen placings are T1267; the
 app's look, labels and key are T1269, the credit T1270. Plan: planning notes `T1188/DEPTH-IN-0100-SCOPE.md` W3 + W4.
@@ -33,8 +33,12 @@ Contract with the app lane: the depth lane's `CONTRACT.md` (night notes 2026-11-
 - Zoom ladder per sheet (`ladder.sheet_ladder`; the planning chat's pick "A", 2026-11-28, from B / A picture sheets):
   from the sheet's own levels in its native unit, the smallest nice step (1, 2, 5 x 10^k) leaving `INDEX_LINES_MIN` 2
   to `INDEX_LINES_MAX` 4 index lines (z11); the next finer nice step at z12 only when it adds at most
-  `MIDDLE_LINES_FACTOR` 3 x the index lines; the rest z13; one level = its index. Over the 322 frozen lakes: every lake
-  has 1-4 index lines (1: 92, 2: 95, 3: 65, 4: 70); pieces z11 / z12 / z13 37,992 / 39,702 / 94,187.
+  `MIDDLE_LINES_FACTOR` 3 x the index lines; the rest z13; one level = its index. After the shoreline cut a lake left
+  with no index line numbers its deepest drawn level (`EVERY_DRAWN_LAKE_HAS_AN_INDEX_LINE`; 0 of 322 need it today).
+  The final side build (a9c4b7316, the real freeze, 2026-11-28), counted on the DRAWN lines of `placed/`: lakes with
+  1 / 2 / 3 / 4 index levels 94 / 96 / 65 / 67, none without; pieces by minzoom z11 / z12 / z13 37,787 / 39,530 /
+  94,564 (171,881). Decoded from the BUILT archive (features per tile over the tiles covering a lake): z11 41,050 (all
+  index), z12 85,016, z13 191,805; every one of the 322 lakes draws at z11.
 
 ## Acceptance
 `pipeline/tests/test_bathymetry_t1268.py` (synthetic sheets: pose, feet, clip, split, adjust, stubs, determinism,
