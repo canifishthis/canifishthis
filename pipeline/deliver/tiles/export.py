@@ -1048,12 +1048,14 @@ def export_admin(gpkg: str, out_dir: Path) -> dict:
     return {lname: close() for lname, (_, close) in writers.items()}
 
 
-def export_contours(out_dir: Path, build_dir: Path, *, placings: Path | None = None, placed: Path | None = None) -> dict:
+def export_contours(out_dir: Path, build_dir: Path, *, placed: Path, placings: Path | None = None) -> dict:
     """(T1268) The placed lake depth lines, `depth_contour`: ONLY the frozen placings' lines
     (`pipeline.bathymetry.placed_contours`), the SHIPPING view only, and the WHOLE layer file written each run (never
     appended; an empty set writes it empty). The placed set missing or made from other inputs is made here through the
     one producer (logged); a lake item this atlas does not hold, a zip that fails its hash, the size gate: RAISE (W46;
-    it used to skip a missing gpkg layer, and the map then shipped without depth while saying nothing)."""
+    it used to skip a missing gpkg layer, and the map then shipped without depth while saying nothing).
+    `placed` has no default: the caller names its build's placed set (`tiles.__main__.placed_home`), so a side build
+    can never fall through to the live `GENERATED.bathymetry/placed` (AGENTS 17)."""
     import orjson
     from pyproj import Transformer
     from shapely.geometry import LineString

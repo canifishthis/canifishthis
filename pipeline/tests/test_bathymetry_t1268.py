@@ -358,3 +358,18 @@ def test_the_contract_names_depth_contour_and_no_longer_contour():
     assert "contour" not in c
     assert c["depth_contour"]["attrs"] == ["item", "depth_m", "index"] and c["depth_contour"]["featureId"] == "item"
     assert c["depth_contour"]["minzoom"] == 11 and c["depth_contour"]["geometry"] == "line"
+
+
+def test_a_side_tiles_build_keeps_its_placed_set_under_its_own_folder(tmp_path, monkeypatch):
+    """Re-review (a), AGENTS 17: a side / scratch tiles build never writes the live placed set; only the live tiles
+    directory's build uses `placed_contours.out_dir()`, and the export has no default to fall through to."""
+    import inspect
+    from types import SimpleNamespace
+    from pipeline.deliver.tiles import __main__ as tiles_main
+    monkeypatch.setattr(tiles_main, "GENERATED", SimpleNamespace(tiles=tmp_path / "live" / "tiles"))
+    assert tiles_main.placed_home(tmp_path / "side" / "tiles") == tmp_path / "side" / "tiles" / "placed"
+    assert tiles_main.placed_home(tmp_path / "live" / "tiles") == PC.out_dir()
+    assert tiles_main.placed_home(tmp_path / "live" / "tiles" / ".." / "tiles") == PC.out_dir()
+    assert inspect.signature(export.export_contours).parameters["placed"].default is inspect.Parameter.empty
+    src = inspect.getsource(tiles_main.main)
+    assert "export.export_contours(layer_dir, build_dir, placed=placed_home(out_dir))" in src
