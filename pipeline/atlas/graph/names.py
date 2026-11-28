@@ -269,10 +269,12 @@ def line_owner_blks(owners) -> set[str]:
 
 
 def apply_line_owners(graph: StreamGraph, owners: list[dict], name_variants: list[dict] = ()) -> int:
-    """(T1259) Give each assigned line's pieces an OVERRIDE name carrying its new water's gnis, and that name as its
-    label: the registry then groups them under that water (`registry.build._effective_gnis`). Refused, by line: a line
-    a name variant names too (by blk); a line not in the graph; a line that belongs today to another water than the
-    entry's `from`; a `water` no graph node carries; a piece already carrying an override name of another gnis (a name
+    """(T1259) Give each assigned line's pieces its new water's OWN name tuple (the best-ranked tuple of that name on
+    the water's own nodes: for the Kitsumkalum River its gazette name, so the water's page still says "BC Geographical
+    Names (official)"), carrying the water's gnis, and that name as its label: the registry then groups them under that
+    water (`registry.build._effective_gnis`, checked here per piece). Refused, by line: a line a name variant names too
+    (by blk); a line not in the graph; a line that belongs today to another water than the entry's `from`; a `water` no
+    graph node carries, or that goes by no such name; a piece already carrying an override name of another gnis (a name
     variant that would move it elsewhere). Returns the pieces named."""
     from pipeline.atlas.registry.build import _effective_gnis, _wsc_gnis_map
     if not owners:
@@ -285,16 +287,27 @@ def apply_line_owners(graph: StreamGraph, owners: list[dict], name_variants: lis
     wsc_gnis = _wsc_gnis_map(graph)
     by_blk: dict[str, list[str]] = {}
     waters: set[str] = set()
+    wanted = {(e["water"][5:], e["name"]) for e in owners}
+    own: dict[tuple, NameTuple] = {}                    # (gnis, name) -> the water's own best tuple of that name
     for nid, n in graph.nodes.items():
         if n.kind == NodeKind.stream and n.blk:
             by_blk.setdefault(str(n.blk), []).append(nid)
         if n.gnis_id:
             waters.add(f"gnis:{n.gnis_id}")
+            for t in n.name_tuples:
+                k = (n.gnis_id, t.name)
+                if k in wanted and t.gnis_id in ("", n.gnis_id) and (
+                        k not in own or _PRIORITY[t.source] < _PRIORITY[own[k].source]):
+                    own[k] = t
     named = 0
     for e in owners:
         gid = e["water"][5:]
         if e["water"] not in waters:
             raise ValueError(f"line owners: water {e['water']} ({e['name']}) is not in the graph")
+        best = own.get((gid, e["name"]))
+        if best is None:
+            raise ValueError(f"line owners: water {e['water']} goes by no name {e['name']!r} on its own lines")
+        tup = replace(best, note=f"line_owners.json (T1259); {best.note}".rstrip("; "), gnis_id=gid)
         for b in e["blks"]:
             nids = by_blk.get(str(b))
             if not nids:
@@ -310,9 +323,12 @@ def apply_line_owners(graph: StreamGraph, owners: list[dict], name_variants: lis
                 if other:
                     raise ValueError(f"line owners: blue line {b} carries an override name of gnis:{other[0].gnis_id} "
                                      f"('{other[0].name}'), which would move it elsewhere")
-                tup = NameTuple(e["name"], NameSource.override, "line_owners.json (T1259)", gnis_id=gid)
-                graph.nodes[nid] = replace(node, name_tuples=_sorted_unique([tup, *node.name_tuples]),
-                                           display_name=_display_case(e["name"]))
+                moved = replace(node, name_tuples=_sorted_unique([tup, *node.name_tuples]),
+                                display_name=_display_case(e["name"]))
+                if _effective_gnis(moved, wsc_gnis) != gid:
+                    raise ValueError(f"line owners: blue line {b} would still group under "
+                                     f"gnis:{_effective_gnis(moved, wsc_gnis)} with {e['water']}'s name on it")
+                graph.nodes[nid] = moved
                 named += 1
     return named
 

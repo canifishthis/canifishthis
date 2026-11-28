@@ -681,7 +681,7 @@ def add_waters(b: _Build) -> None:
     if _nv_now:
         n = apply_name_variants(graph, _nv_now)
         print(f"  named {len(_nv_now)} variant entries before the prune -> {n} node attachments")
-    # (T1259) the line owners, at the same step and by the same mechanism (an override name carrying the water's gnis)
+    # (T1259) the line owners, at the same step and by the same mechanism (the water's own name tuple, its gnis)
     from pipeline.atlas.graph.names import apply_line_owners
     n = apply_line_owners(graph, b._owners, _nv_all)
     print(f"  line owners: {len(b._owners)} entr(ies) -> {n} piece(s) named to their water")

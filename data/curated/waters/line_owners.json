@@ -1,5 +1,5 @@
 {
- "_about": "THE LINE OWNERS (T1259): FWA blue lines that belong to another water than the one FWA's watershed codes give them. Written through `pipeline.common.curated_write` (A2); read by the atlas build (`graph.names.apply_line_owners`: the name-variant mechanism with validation, an override name carrying the water's gnis at the same graph step; `check_line_owners` after the registry). Each entry: `blks`, `water` (where they go), `from` (whose they are today), `name`, `words` (what decided it). A line named here must not also be named in name_variants.json.",
+ "_about": "THE LINE OWNERS (T1259): FWA blue lines that belong to another water than the one FWA's watershed codes give them. Written through `pipeline.common.curated_write` (A2); read by the atlas build (`graph.names.apply_line_owners`: the name-variant mechanism with validation: each piece takes the water's OWN best name tuple of `name`, carrying its gnis, at the same graph step; `check_line_owners` after the registry). Each entry: `blks`, `water` (where they go), `from` (whose they are today), `name`, `words` (what decided it). A line named here must not also be named in name_variants.json.",
  "owners": [
   {
    "blks": [

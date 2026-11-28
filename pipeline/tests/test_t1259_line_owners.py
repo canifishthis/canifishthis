@@ -1,7 +1,7 @@
 """T1259 (owner 2026-11-27): "thos e braids should be added as name variants of the stream and be moved to the stream
 instead of being part of the skeena all the way dopwn to the build step? "; his pick: "B: the braids become Kitsumkalum
-water". `waters/line_owners.json` gives FWA blue lines to another water by the name-variant mechanism (an override name
-carrying the water's gnis, `graph.names.apply_line_owners`), validated, and checked after the registry
+water". `waters/line_owners.json` gives FWA blue lines to another water by the name-variant mechanism (the water's own
+name tuple, carrying its gnis, `graph.names.apply_line_owners`), validated, and checked after the registry
 (`check_line_owners`). No data needed: a hand-built graph."""
 from __future__ import annotations
 
@@ -121,3 +121,22 @@ def test_the_curated_file_holds_the_kitsumkalum_braids_with_his_words():
     assert "approx. 1.25 km downstream of the CNR bridge" in e["words"]["dfo"]
     assert e["words"]["owner_pick"] == "B: the braids become Kitsumkalum water"
     assert "only the sidechannel braiding there" in e["words"]["owner_reading"]
+
+
+def test_the_braids_carry_the_waters_own_name_so_its_page_keeps_the_official_source():
+    # (T1259, measured 2026-11-27) with an override tuple the Kitsumkalum's name record read "Project curation (owner
+    # decision)", not the gazette's: the water's page changes. The braids carry the water's OWN best tuple of the name
+    from pipeline.atlas.registry.build import name_records
+    g = _graph()
+    N.apply_line_owners(g, _owners())
+    t = g.nodes["360222216:0"].name_tuples[0]
+    assert (t.name, t.source, t.gnis_id) == ("Kitsumkalum River", NameSource.gazette, KI)
+    assert "line_owners.json (T1259)" in t.note
+    rec = name_records(["Kitsumkalum River"], [x for n in ("2:0", "360222216:0", "360222215:0")
+                                               for x in g.nodes[n].name_tuples])[0]
+    assert (rec.source, rec.official) == ("gazette", True)
+
+
+def test_a_name_the_water_does_not_go_by_is_refused():
+    with pytest.raises(ValueError, match="goes by no name 'Kalum River'"):
+        N.apply_line_owners(_graph(), _owners(name="Kalum River"))
