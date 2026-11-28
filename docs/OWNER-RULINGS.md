@@ -389,6 +389,9 @@ his words (verbatim, his spelling); "Reading:" is the planning chat's plain read
 - **Turner Creek's tidal limit (T1246):** "tidal limit is rail bridge again I think. like noons". Built: the lowest
   126 m, below the Ioco Spur crossing, is tidal (OSM shows no bridge there: it may be a culvert).
 - **Tunnel Creek's Seymour leave-out row (T1246):** "(a) Remove the row too (Recommended)". Removed.
+- **The export's two tributary id lists (T679 #12, 2026-11-28):** "derive from data but in 0.10" (earlier: "what lists?
+  i generally would say to derive from data but i dont understand what must carry tributary scope implies"). Reading:
+  the bundle carries each rule's own tributary scope and carve-outs; the export derives both lists (was: lists in code).
 
 ## Known, not new (the audit's finds he had already ruled on)
 - A lake divided into closure areas is deferred (his lake splits); the lake page already says "Open, except some parts".
