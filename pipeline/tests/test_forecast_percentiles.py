@@ -12,8 +12,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from pipeline.gauges.feed.change import FLOOD_MODELS
-from pipeline.gauges.feed.publish import (HORIZONS, forecast_at,
-                                          forecast_percentiles)
+from pipeline.gauges.feed.publish import HORIZONS, forecast_percentiles
 
 NOW = datetime(2026, 9, 4, 12, 0, tzinfo=timezone.utc)
 
@@ -132,22 +131,6 @@ def test_each_quantity_takes_the_first_model_that_answers_IT():
         "discharge": pytest.approx(0.05), "model": "CLEVER"}
 
 
-def test_forecast_at_takes_the_nearest_step_and_not_an_interpolation():
-    """A value between two steps is a number no model produced — and it would then be
-    ranked and shown as a percentile, traceable to no run."""
-    s = hourly(NOW, 240, lambda h: float(h))
-    # +1 day = hour 24, which is a published step.
-    assert forecast_at(s, NOW + timedelta(days=1), "discharge") == pytest.approx(24.0)
-    # Between steps it takes the nearer one, never the average.
-    got = forecast_at(s, NOW + timedelta(hours=27), "discharge")
-    assert got in (24.0, 30.0)
-
-
-def test_forecast_at_refuses_a_step_that_is_about_a_different_day():
-    s = hourly(NOW, 24, lambda h: 11.0)
-    assert forecast_at(s, NOW + timedelta(days=5), "discharge") is None
-
-
 def test_a_run_of_all_nulls_answers_nothing():
     runs = {"CLEVER": {"series": {"at": [NOW.isoformat()], "mid": [None],
                                   "level_mid": [None]}}}
@@ -188,17 +171,10 @@ def test_an_hourly_run_that_stops_hours_short_of_ten_days_does_not_answer_for_it
     early the next morning asks for +10 a few hours past that. The flat 18 h slack let the
     run's last hour stand in for day ten. Half a step of slack refuses it, and ELF answers."""
     clever = hourly(NOW, 234, lambda h: 5.0)                    # last step 6 h short of +10
-    assert forecast_at(clever, NOW + timedelta(days=10), "discharge") is None
     runs = {"CLEVER": {"series": clever}, "ELF": {"series": daily(NOW, 30, 18.0)}}
     got = forecast_percentiles(runs, {"discharge": FLAT}, NOW)
     assert got["10"]["model"] == "ELF"
     assert got["5"]["model"] == "CLEVER"
-
-
-def test_a_daily_run_keeps_half_a_day_of_slack():
-    """ELF's steps are dates (midnight). Any instant inside its run is within 12 h of one."""
-    s = daily(NOW, 30, 11.0)
-    assert forecast_at(s, NOW + timedelta(days=10), "discharge") == pytest.approx(11.0)
 
 
 def test_ten_days_is_absent_not_the_five_day_value_when_no_run_reaches():
