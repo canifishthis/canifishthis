@@ -588,7 +588,7 @@ def read(bundle: Path) -> dict:
         raise SystemExit(f"pipeline.deliver.export: no bundle at {bundle} — build one with "
                          f"`python -m pipeline.deliver.bundle`")
     db = sqlite3.connect(f"file:{bundle}?mode=ro", uri=True)
-    _need(db)
+    _need(db, bundle)
     meta = dict(db.execute("SELECT k, v FROM meta WHERE k != 'schema'"))
 
     entries, names = {}, {}
