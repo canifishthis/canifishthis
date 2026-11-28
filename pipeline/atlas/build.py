@@ -886,7 +886,7 @@ def small_loops_fact(args) -> dict:
 #: (T1242 review) EVERY KIND OF THING THAT KEEPS A CREEK-LESS LOOP in a default build (`loop_keep_inputs`); a test pins
 #: that each is offered, so dropping one fails. Loops that touch a lake / are part of a longer blue line: `small_loops`.
 LOOP_KEEP_KINDS = ("named", "a found name", "a curated cut", "a gauge", "a tidal limit", "an owner call",
-                   "an owner call (pond)")
+                   "an owner call (pond)", "a line owner")
 #: the anchor kinds the loop pass resolves with the cut placement's own resolver, before any loop goes: every kind but
 #: the B.C. border, whose crossings the border pass makes later (a border cut scoped to a blue line keeps that line)
 _LOOP_RESOLVED_ANCHORS = ("point", "gauge", "line", "confluence", "lake", "mu_boundary", "area_boundary")
@@ -899,7 +899,9 @@ def loop_keep_inputs(b: _Build, graph) -> tuple[Path, dict, dict]:
     files); the blue lines the build works out (cuts as placed, found names) are worked out all the same."""
     from pipeline.atlas.registry import flowing as _flowing
     given = getattr(b, "loop_keep_paths", None)          # (a test's own files; the keeps the build works out stand)
-    files: dict = {"an owner call (pond)": CURATED.waters.pond_calls}
+    files: dict = {"an owner call (pond)": CURATED.waters.pond_calls,
+                   # (T1259) a line given to another water is that water's: a loop pass never removes it
+                   "a line owner": CURATED.waters.line_owners}
     if _flowing.FOLD_CONFIRMED:
         files["an owner call"] = CURATED.waters.slough_calls
     # an owner-accepted found name is a LABEL, never a graph name (T224), so the prune cannot see it: its line is kept

@@ -6,6 +6,7 @@ name tuple, carrying its gnis, `graph.names.apply_line_owners`), validated, and 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -199,3 +200,20 @@ def test_the_creek_and_its_feeder_are_kitsumkalum_tributaries(request):
                     "r6:kitsumkalum_kalum_river@6-15 kitsumkalum_river.r5"} <= got, blk
     finally:
         db.close()
+
+
+def test_the_loop_pass_keeps_every_assigned_line():
+    """(T1259 x T1242) an assigned line is its new water's: the creek-less loop pass keeps it (`waters/line_owners.json`
+    is one of `loop_keep_inputs`' files, every blue line it names a keep), so a loop pass can never quietly take the
+    braids; were it to remove one anyway, `check_line_owners` stops the build ("was removed before the registry",
+    above). The two braids are loops with a creek and stay in any case."""
+    from types import SimpleNamespace
+    from pipeline.atlas import build as AB
+    from pipeline.atlas.graph.prune import loop_keeps
+    from pipeline.common.curated import CURATED
+    b = SimpleNamespace(splits=None, _mined=None)
+    ex, files, sets = AB.loop_keep_inputs(b, None)
+    assert files.get("a line owner") == CURATED.waters.line_owners
+    mini = Path(__file__).parent / "fixtures" / "mini" / "curated" / "waters" / "loop_exemptions.json"
+    keeps = loop_keeps(mini, {"a line owner": files["a line owner"]}, {})
+    assert keeps["360222216"] == ["a line owner"] and keeps["360222215"] == ["a line owner"]
