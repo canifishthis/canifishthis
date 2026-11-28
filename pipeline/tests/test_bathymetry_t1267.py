@@ -360,6 +360,24 @@ def test_the_window_is_read_from_the_export_when_it_states_one(tmp_path):
         P.page_from_spec(f"v3,{data},{refit}", export)
 
 
+def test_the_export_s_own_poses_shown_block_is_read_as_written(tmp_path):
+    """The block as the review page's export writes it (2026-11-28 02:26): one dict, `from` a time then words, `to`
+    "still shown at export time"."""
+    env = _Env(tmp_path)
+    data = _write_page(env, "00000001", 1e6)
+    refit = _page_run(env, [_row("00000001", "review", refit=False)])
+    export = {"exported_at": "2026-11-28 02:26 MST",
+              "poses_shown": {"from": "2026-11-27 23:01 MST (safe lower bound; first publish about 23:20)",
+                              "note": "the page has never shown any other pose run", "run": "v2",
+                              "to": "still shown at export time"}}
+    page = P.page_from_spec(f"v2,{data},{refit}", export)
+    assert page.still_showing and page.start == P.parse_time("2026-11-28T06:01:00Z")
+    assert page.end == P.parse_time("2026-11-28T09:26:00Z")
+    P.check_pages([page], export["exported_at"])
+    with pytest.raises(SystemExit, match="neither a time nor"):
+        P.export_windows({"poses_shown": {"run": "v2", "from": "2026-11-27 23:01 MST", "to": "soon"}})
+
+
 def test_a_wrong_mark_after_the_freeze_withdraws_the_row_and_it_never_ships(tmp_path):
     env = _Env(tmp_path)
     _zip(env.dir, "00000001.zip")

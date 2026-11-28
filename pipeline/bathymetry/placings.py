@@ -412,16 +412,47 @@ class Page:
         return Page(label, Path(data), Path(refit), start, end[len("showing@"):] if showing else end, showing)
 
 
+#: a `poses_shown` time as the marks export writes it: the time, then words ("2026-11-27 23:01 MST (safe lower bound)")
+_LEAD_TIME = re.compile(r"^\s*(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z| ?[A-Z]{3}|[+-]\d{2}:\d{2}))")
+#: the words the marks export uses for a run the page still shows when it was exported
+STILL_SHOWN = "still shown at export time"
+
+
+def export_windows(export: Mapping) -> List[dict]:
+    """The marks export's `poses_shown` as windows [{run, from, until | still_showing_at}]. The export writes ONE block
+    {run, from, to, note}: `from` a time followed by words, `to` a time or STILL_SHOWN (then the window ends at the
+    export's own `exported_at`). A list of such blocks is read the same way. Anything else is refused by name."""
+    raw = export.get("poses_shown")
+    blocks = [raw] if isinstance(raw, Mapping) else list(raw or [])
+    out = []
+    for w in blocks:
+        m = _LEAD_TIME.match(str(w.get("from", "")))
+        if not w.get("run") or not m:
+            raise SystemExit(f"marks export `poses_shown` {w!r}: no run, or a `from` that does not start with a time")
+        to = str(w.get("to", w.get("until", ""))).strip()
+        if to == STILL_SHOWN or w.get("still_showing_at"):
+            end = w.get("still_showing_at") or export.get("exported_at")
+            if not end:
+                raise SystemExit("marks export: a run still shown, but no `exported_at` to end its window")
+            out.append({"run": w["run"], "from": m.group(1), "still_showing_at": end})
+            continue
+        mt = _LEAD_TIME.match(to)
+        if not mt:
+            raise SystemExit(f"marks export `poses_shown` {w!r}: `to` is neither a time nor {STILL_SHOWN!r}")
+        out.append({"run": w["run"], "from": m.group(1), "until": mt.group(1)})
+    return out
+
+
 def page_from_spec(spec: str, export: Mapping) -> Page:
-    """A `--page` spec; with three parts its window comes from the marks export's `poses_shown` row for that run
-    ({run, from, until} or {run, from, still_showing_at}); with neither, refused."""
+    """A `--page` spec; with three parts its window comes from the marks export's `poses_shown` (`export_windows`);
+    with neither, refused."""
     parts = spec.split(",")
     if len(parts) == 5:
         return Page.parse(spec)
     if len(parts) != 3:
         raise SystemExit(f"--page {spec}: LABEL,PAGE_DATA_DIR,REFIT_JSON[,FROM_TIME,UNTIL_TIME|showing@TIME]")
     label = parts[0]
-    rows = [r for r in export.get("poses_shown") or [] if r.get("run") == label]
+    rows = [r for r in export_windows(export) if r["run"] == label]
     if len(rows) != 1:
         raise SystemExit(f"--page {spec}: the marks export states no single window for run {label} "
                          "(`poses_shown`); give FROM_TIME,UNTIL_TIME|showing@TIME")
