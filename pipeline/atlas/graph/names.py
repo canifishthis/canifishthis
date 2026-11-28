@@ -231,14 +231,17 @@ def load_name_variants(path) -> list[dict]:
 #: override name so it ranks above the inherited side-channel name — plus what a name variant does not check: each
 #: line must exist, must belong today to the water the entry says it comes `from`, the water it goes to must exist,
 #: and no name variant may name an assigned line or move it elsewhere. Every refusal names the line.
-LINE_OWNER_KEYS = frozenset({"blks", "water", "from", "name", "words"})
+LINE_OWNER_KEYS = frozenset({"blks", "water", "from", "name", "words", "inflows", "no_dfo_places"})
 
 
 def load_line_owners(path) -> list[dict]:
     """(T1259) `waters/line_owners.json`: `{"_about", "owners": [{"blks": [blue line keys], "water": "gnis:<id>"
     (where they go), "from": "gnis:<id>" (whose they are today), "name": the water's name, "words": {what decided it:
-    DFO's, the owner's}}]}`. A missing file raises (AGENTS 37); an unknown key, an empty entry, a malformed id, or a
-    line in two entries is refused by name."""
+    DFO's, the owner's}, "inflows": {"blks": [the blue lines flowing into the assigned lines that the owner accepted
+    as the new water's tributaries], "words": {his}} (checked against the graph every build: `check_line_owner_inflows`),
+    optionally "no_dfo_places": why the new water has no DFO place (else the reach gate requires one)}]}`. A missing file
+    raises (AGENTS 37); an unknown key, an empty entry, a malformed id, a missing `inflows`, or a line in two entries is
+    refused by name."""
     p = Path(path)
     d = json.loads(p.read_text())
     if not isinstance(d, dict) or set(d) - {"_about", "owners"} or not d.get("_about") or "owners" not in d:
@@ -254,6 +257,13 @@ def load_line_owners(path) -> list[dict]:
                 raise ValueError(f"{p}: entry {i}: `{k}` must be a gnis water id, not {e.get(k)!r}")
         if e["water"] == e["from"]:
             raise ValueError(f"{p}: entry {i}: `water` and `from` are both {e['water']}")
+        inf = e.get("inflows")
+        if (not isinstance(inf, dict) or set(inf) != {"blks", "words"} or not isinstance(inf["blks"], list)
+                or not inf["words"] or not all(str(b).isdigit() for b in inf["blks"])):
+            raise ValueError(f"{p}: entry {i}: `inflows` must be {{blks: [the blue lines he accepted as the new water's "
+                             f"tributaries], words: {{his}}}}, not {inf!r}")
+        if "no_dfo_places" in e and not str(e["no_dfo_places"] or "").strip():
+            raise ValueError(f"{p}: entry {i}: `no_dfo_places` must say why")
         for b in e["blks"]:
             if not str(b).isdigit():
                 raise ValueError(f"{p}: entry {i}: blue line {b!r} is not a blue line key")
@@ -309,6 +319,28 @@ def inflows_to_assigned_lines(graph: StreamGraph) -> list[tuple[str, str, str]]:
                     if x.blk and str(x.blk) != str(m.blk):
                         out.setdefault(str(x.blk), (str(x.blk), str(n.blk), f"above {m.blk}"))
     return sorted(out.values())
+
+
+def check_line_owner_inflows(graph: StreamGraph, owners) -> None:
+    """(T1259, re-review 2) THE INFLOWS ARE THE OWNER'S: the blue lines that flow into an entry's assigned lines (and
+    those above them, `inflows_to_assigned_lines`) become its new water's tributaries, so they must be exactly the ones
+    the entry lists under `inflows` (he accepted them by name). Raises naming each line found and not listed, and
+    each listed and not found."""
+    got: dict[str, set] = {}
+    for blk, on, _how in inflows_to_assigned_lines(graph):
+        got.setdefault(on, set()).add(blk)
+    bad = []
+    for e in owners or ():
+        found = set().union(*(got.get(str(b), set()) for b in e["blks"]))
+        listed = {str(b) for b in e["inflows"]["blks"]}
+        if found - listed:
+            bad.append(f"{e['water']}: blue line(s) {sorted(found - listed)} flow into its assigned lines and would "
+                       f"become its tributaries, but `inflows` does not list them (ask the owner)")
+        if listed - found:
+            bad.append(f"{e['water']}: `inflows` lists blue line(s) {sorted(listed - found)} that no longer flow into "
+                       f"its assigned lines")
+    if bad:
+        raise ValueError("line owners: the inflows differ from the accepted ones:\n  " + "\n  ".join(bad))
 
 
 def unnamed_neighbours_of_assigned_lines(graph: StreamGraph) -> list[tuple[str, str]]:

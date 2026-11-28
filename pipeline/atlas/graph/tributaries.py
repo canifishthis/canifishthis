@@ -834,6 +834,9 @@ class Reach:
     #: (T1177) what the lake rows' printed exceptions hold out WHERE THE WALK IS NOW (the state of the section it climbs
     #: from, `tributaries_of_reach` `stops`, `A_STOP_HOLDS_THROUGH_ITS_LAKE`): refused like `blocked`
     held: frozenset = frozenset()
+    #: (T1259) the OLD waters' codes of the reach's assigned lines (`_old_codes`): refused, with every code above them,
+    #: at every step (`AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER`); empty for a reach with no assigned line
+    old: frozenset = frozenset()
 
     def at_boundary(self, node: str) -> bool:
         return node in self.reach or node in self.online
@@ -873,7 +876,7 @@ def reach_context(graph: StreamGraph, reach, *, blocked=frozenset(), own=frozens
                            and n.kind == NodeKind.stream and n.blk)
     return Reach(graph=graph, reach=reach, codes=codes, blocked=frozenset(blocked), own=own,
                  guarded=guarded, cuts=cuts, reach_blks=reach_blks, heads=heads, water=water,
-                 inflows=frozenset(inflows))
+                 inflows=frozenset(inflows), old=_old_codes(graph, reach))
 
 
 def may_enter(ctx: Reach, src: str, dst: str, edge=None, *, via: str = FLOW) -> str | None:
@@ -910,7 +913,7 @@ def may_enter(ctx: Reach, src: str, dst: str, edge=None, *, via: str = FLOW) -> 
         return NOT_IN_GRAPH
     if ctx.guarded and n.is_barrier:
         return BARRIER                          # the canal, and everything above it
-    return _refusal(g, src, dst, ctx.codes, guarded=ctx.guarded, by_order=via != RUN)
+    return _refusal(g, src, dst, ctx.codes, guarded=ctx.guarded, by_order=via != RUN, old=ctx.old)
 
 
 def _continuing(ctx: Reach, src: str, dst: str, edge) -> str | None:
@@ -1426,9 +1429,11 @@ THE_WALK_NEVER_ENTERS_A_PARENT = True
 #: `THE_WALK_NEVER_ENTERS_A_PARENT` for the old river, and only the order guard would stand between a whole-water
 #: "including tributaries" walk and the whole old river (FWA draws some side channels at their river's order). So:
 #:  - an assigned piece's code is never one of the reach's codes (`_reach_codes`): the old river is the parent again;
-#:  - from an assigned piece, the walk never steps into a piece carrying that piece's own code or a code above it (the
-#:    old water, at any order: `_refusal`, `RECEIVING_RIVER`). Water whose code EXTENDS it (a creek flowing into the
-#:    assigned line) is a genuine tributary and is climbed: it becomes the new water's tributary.
+#:  - the walk carries those codes (`Reach.old`, `_old_codes`) and, at EVERY step (not only from an assigned piece:
+#:    a slough with its own code can touch the old river above the braid), never steps into a piece carrying one of
+#:    them or a code above it (the old water, at any order: `_refusal`, `RECEIVING_RIVER`). Water whose code EXTENDS
+#:    it (a creek flowing into the assigned line) is a genuine tributary and is climbed: it becomes the new water's
+#:    tributary. A walk whose reach holds no assigned line carries none: the rule is inert for it.
 #: A piece is "assigned" by its name tuple (`names.is_assigned_line`), so the graph alone says it.
 AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER = True
 
@@ -1442,6 +1447,14 @@ def _reach_codes(graph: StreamGraph, reach) -> frozenset[str]:
     `AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER`)."""
     return frozenset(n.wsc for r in reach if (n := graph.nodes.get(r)) is not None and n.wsc
                      and not (AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER and _assigned(n)))
+
+
+def _old_codes(graph: StreamGraph, reach) -> frozenset[str]:
+    """(T1259) The codes the reach's assigned pieces carry: their OLD water's (`AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_
+    OLD_WATER`). Empty when the policy is off or the reach holds no assigned piece."""
+    if not AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER:
+        return frozenset()
+    return frozenset(n.wsc for r in reach if (n := graph.nodes.get(r)) is not None and n.wsc and _assigned(n))
 
 
 @functools.lru_cache(maxsize=1024)
@@ -1458,7 +1471,7 @@ def _receives(src, codes: frozenset[str]) -> bool:
 
 
 def _refusal(graph: StreamGraph, src: str, dst: str, codes: frozenset[str], *,
-             guarded: bool = True, by_order: bool = True) -> str | None:
+             guarded: bool = True, by_order: bool = True, old: frozenset[str] = frozenset()) -> str | None:
     """The CODE-AND-ORDER half of `may_enter` (which asks it last): why a walk may not step from
     `dst` up into `src` (which flows into it) — or None. Called by `may_enter` only.
 
@@ -1473,9 +1486,9 @@ def _refusal(graph: StreamGraph, src: str, dst: str, codes: frozenset[str], *,
     s, d = graph.nodes.get(src), graph.nodes.get(dst)
     if THE_WALK_NEVER_ENTERS_A_PARENT and _receives(s, codes):
         return RECEIVING_RIVER
-    if (AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER and _assigned(d) and s is not None and not _assigned(s)
-            and s.wsc and d.wsc and (s.wsc == d.wsc or wsc.is_strictly_below(d.wsc, s.wsc))):
-        return RECEIVING_RIVER                 # the assigned line's old water, at any order
+    if (AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER and old and s is not None and s.wsc and not _assigned(s)
+            and (s.wsc in old or s.wsc in _strict_ancestors(frozenset(old)))):
+        return RECEIVING_RIVER                 # an assigned line's old water (or above it), at any order, at any step
     if not by_order or _code_says_tributary(s, d):
         return None
     if guarded and _order_breaks(s, d) and not _is_main_outlet(graph, src, dst):

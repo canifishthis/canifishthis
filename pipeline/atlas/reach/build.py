@@ -1861,44 +1861,64 @@ class LineOwnerGateError(RuntimeError):
     """A water's rule or DFO place reaches its assigned lines' OLD water through the tributary walk (`line_owner_gate`)."""
 
 
-def line_owner_gate(graph, registry, entries, bindings, dfo_rows=()) -> None:
+def line_owner_gate(graph, registry, entries, bindings, dfo_rows=None, owners=None) -> None:
     """(T1259, review M1 b) THE OLD WATER IS NEVER THE NEW WATER'S TRIBUTARY: for every water that `waters/line_owners.json`
     gave lines to (the graph's assigned pieces, `names.is_assigned_line`), no section of the lines' OLD water (every
     piece carrying an assigned piece's own watershed code, outside the new water's item: the old river's main line and
     its same-code channels) may take a rule of the new water's entries through the tributary walk (`via_tributary`),
     or a section of a DFO place named for the new water. Raises naming each; the walk's own refusal is
-    `tributaries.AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER`, this is the check that it held."""
-    from pipeline.atlas.graph.names import LINE_OWNER_NOTE, is_assigned_line
+    `tributaries.AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER`, this is the check that it held.
+
+    NEVER A PASS THAT CHECKED NOTHING (re-review 3): `owners` (the curated entries; None reads the curated file) with
+    no assigned piece in the graph for one of them is refused (a lost marking, a stale graph); so is a new water with
+    no DFO place of its name, unless its entry says why it has none (`no_dfo_places`). `dfo_rows` None: the DFO places
+    were not resolved (a run without --out), and it says so."""
+    from pipeline.atlas.graph.names import LINE_OWNER_NOTE, is_assigned_line, load_line_owners
+    if owners is None:
+        from pipeline.common.curated import CURATED
+        owners = load_line_owners(CURATED.waters.line_owners)
     codes: dict[str, set] = {}
     for n in graph.nodes.values():
         if is_assigned_line(n) and n.wsc:
             t = next(t for t in n.name_tuples if str(t.note or "").startswith(LINE_OWNER_NOTE))
             codes.setdefault(f"gnis:{t.gnis_id}", set()).add(n.wsc)
     bad = []
+    for e in owners or ():
+        if e["water"] not in codes:
+            bad.append(f"{e['water']}: `line_owners.json` gives it blue lines {list(e['blks'])} but the graph holds no "
+                       f"assigned piece of it (a lost marking or a graph built before the entry): nothing was checked")
+    by_water = {e["water"]: e for e in owners or ()}
     for new, cs in sorted(codes.items()):
         it = registry.get(new)
         if it is None:
             raise LineOwnerGateError(f"line owners: {new} has assigned lines but no registry item")
         own = set(it.section_ids)
         old = {nid for nid, n in graph.nodes.items() if n.wsc in cs and nid not in own and not is_assigned_line(n)}
-        for b in bindings:
+        mine = [b for b in bindings if new in ((entries.get(b.entry_id) or {}).get("matched") or ())]
+        for b in mine:
             hit = old & set(getattr(b, "via_tributary", ()) or ())
-            if hit and new in ((entries.get(b.entry_id) or {}).get("matched") or ()):
+            if hit:
                 bad.append(f"{b.entry_id} {b.rule_id}: {len(hit)} section(s) of {new}'s assigned lines' old water "
                            f"through the tributary walk, e.g. {sorted(hit)[:3]}")
         slug = "-".join(str(it.name).lower().split())
-        for row in dfo_rows or ():
-            hit = old & set(row.get("sections") or ())
-            if hit and str(row.get("location_id", "")).split(":")[1:2] == [slug]:
-                bad.append(f"dfo {row['location_id']}: {len(hit)} section(s) of {new}'s assigned lines' old water, "
-                           f"e.g. {sorted(hit)[:3]}")
+        if dfo_rows is None:
+            places = "DFO places NOT checked (no --out: they are not resolved in this run)"
+        else:
+            rows = [r for r in dfo_rows if str(r.get("location_id", "")).split(":")[1:2] == [slug]]
+            for row in rows:
+                hit = old & set(row.get("sections") or ())
+                if hit:
+                    bad.append(f"dfo {row['location_id']}: {len(hit)} section(s) of {new}'s assigned lines' old water, "
+                               f"e.g. {sorted(hit)[:3]}")
+            if not rows and not (by_water.get(new) or {}).get("no_dfo_places"):
+                bad.append(f"{new}: no DFO place is named for it ({slug}): its places went unchecked (say why in its "
+                           f"entry's `no_dfo_places` if it has none)")
+            places = f"{len(rows)} DFO place(s) of {slug}"
         print(f"  line owners  {new}: {len(old):,} old-water section(s) (codes {', '.join(sorted(cs))}) checked "
-              f"against {sum(1 for b in bindings if new in ((entries.get(b.entry_id) or {}).get('matched') or ()))} "
-              f"binding(s) of its entries and {sum(1 for r in dfo_rows or () if str(r.get('location_id', '')).split(':')[1:2] == [slug])}"
-              f" DFO place(s) of {slug}: {sum(1 for x in bad if new in x)} through the walk")
+              f"against {len(mine)} binding(s) of its entries and {places}: {sum(1 for x in bad if new in x)} refused")
     if bad:
-        raise LineOwnerGateError("the old water of an assigned line became its new water's tributary:\n  "
-                                 + "\n  ".join(bad))
+        raise LineOwnerGateError("the old water of an assigned line became its new water's tributary, or the check "
+                                 "had nothing to check:\n  " + "\n  ".join(bad))
 
 
 class StraddleGateError(RuntimeError):

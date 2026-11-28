@@ -38,7 +38,8 @@ def _graph():
 def _owners(**kw):
     e = {"blks": ["360222216", "360222215"], "water": f"gnis:{KI}", "from": f"gnis:{SK}", "name": "Kitsumkalum River",
          "words": {"dfo": "The mouth of the Kitsumkalum River is designated by fishing boundary signs ...",
-                   "owner_pick": "B: the braids become Kitsumkalum water"}}
+                   "owner_pick": "B: the braids become Kitsumkalum water"},
+         "inflows": {"blks": [], "words": {"owner_pick": "none join them"}}}
     e.update(kw)
     return [e]
 
@@ -86,6 +87,14 @@ def test_the_loader_refuses_by_name(tmp_path):
         load({"_about": "x", "owners": _owners(water=f"gnis:{SK}")})
     with pytest.raises(ValueError, match="blue line '36022x' is not a blue line key"):
         load({"_about": "x", "owners": _owners(blks=["36022x"])})
+    # (re-review 2, 3) the accepted inflows are required, with words; a `no_dfo_places` says why
+    e = {k: v for k, v in _owners()[0].items() if k != "inflows"}
+    with pytest.raises(ValueError, match="`inflows` must be"):
+        load({"_about": "x", "owners": [e]})
+    with pytest.raises(ValueError, match="`inflows` must be"):
+        load({"_about": "x", "owners": _owners(inflows={"blks": ["1"], "words": {}})})
+    with pytest.raises(ValueError, match="`no_dfo_places` must say why"):
+        load({"_about": "x", "owners": _owners(no_dfo_places=" ")})
 
 
 def test_the_graph_step_refuses_by_line():
@@ -268,8 +277,10 @@ def test_the_new_waters_walk_never_climbs_its_assigned_lines_old_water():
     assert N.is_assigned_line(g.nodes["B:0"]) and not N.is_assigned_line(g.nodes["SU:0"])
     assert T.tributaries_of_reach(g, {"K:0", "B:0"}) == {"KT:0", "C:0", "CF:0"}
     assert T._reach_codes(g, {"K:0", "B:0"}) == frozenset({WSC_KI})         # the braid's (the Skeena's) code is not one
-    assert T._refusal(g, "SU:0", "B:0", frozenset({WSC_KI})) == T.RECEIVING_RIVER
-    assert T._refusal(g, "C:0", "B:0", frozenset({WSC_KI})) is None
+    assert T._old_codes(g, {"K:0", "B:0"}) == frozenset({WSC_SK})
+    assert T._refusal(g, "SU:0", "B:0", frozenset({WSC_KI}), old=frozenset({WSC_SK})) == T.RECEIVING_RIVER
+    assert T._refusal(g, "C:0", "B:0", frozenset({WSC_KI}), old=frozenset({WSC_SK})) is None
+    assert T._old_codes(g, {"SU:0", "SM:0"}) == frozenset()                  # inert for a walk with no assigned line
     assert T.tributaries_of_reach(g, {"SU:0", "SM:0"}) == {"ST:0", "B:0", "K:0", "KT:0", "C:0", "CF:0"}
 
 
@@ -287,6 +298,53 @@ def test_mutation_pin_without_the_policy_the_kitsumkalum_climbs_the_skeena(monke
     assert T.tributaries_of_reach(_assigned_world(), {"K:0", "B:0"}) >= {"SU:0", "ST:0"}
 
 
+def _slough_world():
+    """The re-review's probe: a slough (SL, its OWN code under the Skeena's, the Skeena's order) touches the braid and
+    the Skeena above it (SU flows into SL, SL into B). A walk of the braid alone has no reach code to call the Skeena a
+    parent, and no assigned piece to step from when it meets SU."""
+    import dataclasses
+    from pipeline.tests.test_reach_tributaries import _g, _w
+    g = _assigned_world()
+    nodes = list(g.nodes.values()) + [_w("SL:0", order=7, wsc=WSC_SK + "-300000")]
+    edges = [(e.from_node, e.to_node, e.kind) for e in g.edges] + [("SU:0", "SL:0", "confluence"),
+                                                                    ("SL:0", "B:0", "confluence")]
+    return _g(nodes, edges)
+
+
+def test_a_braid_only_walk_never_climbs_the_old_water_through_a_slough():
+    """(re-review 1) the walk carries the old water's codes and refuses them, and every code above them, at EVERY step:
+    the braid-only walk takes the slough and the creeks, never the Skeena above the slough or the Skeena's creek."""
+    from pipeline.atlas.graph import tributaries as T
+    assert T.tributaries_of_reach(_slough_world(), {"B:0"}) == {"SL:0", "K:0", "KT:0", "C:0", "CF:0"}
+
+
+def test_mutation_pin_the_old_codes_asked_only_from_an_assigned_piece_let_the_slough_lead_in(monkeypatch):
+    """MUTATION (the old codes empty, as when the guard was asked only from an assigned piece): through the slough the
+    braid-only walk climbs the Skeena above and its creek; only stream order could have stopped it."""
+    from pipeline.atlas.graph import tributaries as T
+    monkeypatch.setattr(T, "_old_codes", lambda graph, reach: frozenset())
+    assert T.tributaries_of_reach(_slough_world(), {"B:0"}) >= {"SL:0", "SU:0", "ST:0"}
+
+
+def test_the_build_stops_when_the_inflows_differ_from_his():
+    """(re-review 2) the lines flowing into the assigned lines are exactly the entry's accepted `inflows`, or the build
+    stops naming them: a new one (the slough), or a listed one that no longer flows in."""
+    own = _owners(blks=["B"], inflows={"blks": ["C", "CF"], "words": {"owner_pick": "Kitsumkalum tributary"}})
+    N.check_line_owner_inflows(_assigned_world(), own)
+    with pytest.raises(ValueError, match=r"blue line\(s\) \['SL'\] flow into its assigned lines .* does not list them"):
+        N.check_line_owner_inflows(_slough_world(), own)
+    with pytest.raises(ValueError, match=r"lists blue line\(s\) \['X'\] that no longer flow"):
+        N.check_line_owner_inflows(_assigned_world(), _owners(blks=["B"], inflows={"blks": ["C", "CF", "X"],
+                                                                                    "words": {"p": "x"}}))
+
+
+def test_the_curated_inflows_are_the_creek_and_its_feeder():
+    from pipeline.common.curated import CURATED
+    [e] = N.load_line_owners(CURATED.waters.line_owners)
+    assert e["inflows"]["blks"] == ["360792160", "360464409"]
+    assert e["inflows"]["words"]["owner_pick"] == "Kitsumkalum tributary"
+
+
 def test_the_reach_gate_refuses_the_old_water_as_a_tributary_by_name():
     """(review M1 b) `reach.build.line_owner_gate`: a binding of an entry matching the new water whose tributary
     sections hold the old water (any piece of the assigned line's code outside the new water's item), or a DFO place
@@ -298,15 +356,35 @@ def test_the_reach_gate_refuses_the_old_water_as_a_tributary_by_name():
     ents = {"r6:kit": {"matched": [f"gnis:{KI}"]}, "r6:sk": {"matched": [f"gnis:{SK}"]}}
     ok = [NS(entry_id="r6:kit", rule_id="kit.r5", via_tributary=("KT:0", "C:0")),
           NS(entry_id="r6:sk", rule_id="sk.r1", via_tributary=("SU:0", "B:0", "K:0"))]    # the Skeena's own: fine
-    line_owner_gate(g, reg, ents, ok, [{"location_id": "6:kitsumkalum-river:whole", "sections": ["K:0", "B:0"]},
-                                       {"location_id": "6:skeena-river:whole", "sections": ["SU:0", "K:0"]}])
+    own = _owners(blks=["B"])
+    places = [{"location_id": "6:kitsumkalum-river:whole", "sections": ["K:0", "B:0"]},
+              {"location_id": "6:skeena-river:whole", "sections": ["SU:0", "K:0"]}]
+    line_owner_gate(g, reg, ents, ok, places, own)
     bad = ok + [NS(entry_id="r6:kit", rule_id="kit.r2", via_tributary=("KT:0", "SU:0"))]
     with pytest.raises(LineOwnerGateError, match=r"r6:kit kit\.r2: 1 section\(s\) of gnis:3942's .*SU:0"):
-        line_owner_gate(g, reg, ents, bad)
+        line_owner_gate(g, reg, ents, bad, places, own)
     with pytest.raises(LineOwnerGateError, match=r"dfo 6:kitsumkalum-river:whole: 1 section.*SM:0"):
-        line_owner_gate(g, reg, ents, ok, [{"location_id": "6:kitsumkalum-river:whole", "sections": ["K:0", "SM:0"]}])
+        line_owner_gate(g, reg, ents, ok, [{"location_id": "6:kitsumkalum-river:whole", "sections": ["K:0", "SM:0"]}],
+                        own)
     with pytest.raises(LineOwnerGateError, match="has assigned lines but no registry item"):
-        line_owner_gate(g, {}, ents, ok)
+        line_owner_gate(g, {}, ents, ok, places, own)
+
+
+def test_the_reach_gate_never_passes_having_checked_nothing(capsys):
+    """(re-review 3) entries but no assigned piece in the graph (a lost marking, a stale graph) is refused; so is a new
+    water with no DFO place of its name unless its entry says why; a run without --out says the places went unchecked."""
+    from types import SimpleNamespace as NS
+    from pipeline.atlas.reach.build import LineOwnerGateError, line_owner_gate
+    from pipeline.tests.test_reach_tributaries import _g, _w
+    reg = {f"gnis:{KI}": NS(section_ids=("K:0", "B:0"), name="Kitsumkalum River")}
+    own = _owners(blks=["B"])
+    with pytest.raises(LineOwnerGateError, match=r"gnis:3942: .* the graph holds no assigned piece of it"):
+        line_owner_gate(_g([_w("B:0", order=7, wsc=WSC_SK)], []), reg, {}, [], [], own)
+    with pytest.raises(LineOwnerGateError, match=r"no DFO place is named for it \(kitsumkalum-river\)"):
+        line_owner_gate(_assigned_world(), reg, {}, [], [{"location_id": "6:skeena-river:whole", "sections": []}], own)
+    line_owner_gate(_assigned_world(), reg, {}, [], [], _owners(blks=["B"], no_dfo_places="DFO lists none"))
+    line_owner_gate(_assigned_world(), reg, {}, [], None, own)
+    assert "DFO places NOT checked (no --out" in capsys.readouterr().out
 
 
 @pytest.mark.needs_bundle

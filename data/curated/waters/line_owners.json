@@ -1,5 +1,5 @@
 {
- "_about": "THE LINE OWNERS (T1259): FWA blue lines that belong to another water than the one FWA's watershed codes give them. Hand-authored, like name_variants.json (no program writes it); read by the atlas build (`graph.names.apply_line_owners`: the name-variant mechanism with validation: each piece takes the water's OWN best name tuple of `name`, carrying its gnis, at the same graph step; `check_line_owners` after the registry). Each entry: `blks`, `water` (where they go), `from` (whose they are today), `name`, `words` (what decided it). A line named here must not also be named in name_variants.json. Water flowing into an assigned line becomes the new water's tributary (the build prints those lines); the line's old water never does (`tributaries.AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER`, checked by the reach run's `line_owner_gate`).",
+ "_about": "THE LINE OWNERS (T1259): FWA blue lines that belong to another water than the one FWA's watershed codes give them. Hand-authored, like name_variants.json (no program writes it); read by the atlas build (`graph.names.apply_line_owners`: the name-variant mechanism with validation: each piece takes the water's OWN best name tuple of `name`, carrying its gnis, at the same graph step; `check_line_owners` after the registry). Each entry: `blks`, `water` (where they go), `from` (whose they are today), `name`, `words` (what decided it), `inflows` (the blue lines flowing into the assigned lines that he accepted as the new water's tributaries, with his words: the build stops when the lines flowing in differ), and optionally `no_dfo_places` (why the new water has no DFO place; else the reach gate requires one). A line named here must not also be named in name_variants.json. Water flowing into an assigned line becomes the new water's tributary (the build prints those lines); the line's old water never does (`tributaries.AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER`, checked by the reach run's `line_owner_gate`).",
  "owners": [
   {
    "blks": [
@@ -15,6 +15,16 @@
     "owner_question": "thos e braids should be added as name variants of the stream and be moved to the stream instead of being part of the skeena all the way dopwn to the build step? ",
     "owner_pick": "B: the braids become Kitsumkalum water",
     "what": "the two Skeena side channels between DFO's two mouth signs (1.63 km and 0.63 km, 2.26 km); the Skeena's main line stays the Skeena's; picked 2026-11-27 with the A/B picture showing Class II all year, the Steelhead Stamp Aug 7-May 31, steelhead closed May 15-Jun 15 and the Sunday closure to non-guided non-resident aliens"
+   },
+   "inflows": {
+    "blks": [
+     "360792160",
+     "360464409"
+    ],
+    "words": {
+     "owner_question": "Asked 2026-11-28 with the measured sheet: the creek and its feeder that join the braids (FWA 360792160 and 360464409, 2.57 km, unnamed): \"Stay a Skeena tributary (Recommended)\" / \"Kitsumkalum tributary\" / \"Wait for the size answer\"",
+     "owner_pick": "Kitsumkalum tributary"
+    }
    }
   }
  ]
