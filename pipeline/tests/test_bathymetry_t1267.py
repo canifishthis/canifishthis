@@ -396,6 +396,28 @@ def test_a_mark_naming_its_pose_run_is_read_against_that_run_even_after_the_swit
     assert frozen["placings"] == [] and "mark_after_its_export" in rep["held_out"]
 
 
+def test_the_04_25_export_s_closed_window_and_switch_time_are_read_as_written(tmp_path):
+    """The header as the page wrote it at the v5 switch (2026-11-28 04:25): `exported_at` and `to` carry words after
+    their time, the window is closed at the switch, and `switch_time_utc` must be where it ends."""
+    env = _Env(tmp_path)
+    data = _write_page(env, "00000001", 1e6)
+    refit = _page_run(env, [_row("00000001", "review", refit=False)])
+    export = {"exported_at": "2026-11-28 04:25 MST (same 27 marks as the 02:26 export)",
+              "poses_shown": {"from": "2026-11-27 23:01 MST (safe lower bound; first publish about 23:20)",
+                              "note": "after the switch every save writes pose_run", "run": "v2",
+                              "to": "2026-11-28 04:21:21 MST (11:21:21Z): page version 15 published"},
+              "switch_time_utc": "2026-11-28T11:21:21Z"}
+    assert P.export_time(export) == "2026-11-28 04:25 MST"
+    page = P.page_from_spec(f"v2,{data},{refit}", export)
+    assert not page.still_showing and page.end == P.parse_time("2026-11-28T11:21:21Z")
+    P.check_pages([page], P.export_time(export))
+    assert P.page_for([page], "2026-11-28T11:21:20Z") is page and P.page_for([page], "2026-11-28T11:21:21Z") is None
+    with pytest.raises(SystemExit, match="switch_time_utc"):
+        P.export_windows(dict(export, switch_time_utc="2026-11-28T11:00:00Z"))
+    with pytest.raises(SystemExit, match="does not start with a time"):
+        P.export_time({"exported_at": "this morning"})
+
+
 def test_a_wrong_mark_after_the_freeze_withdraws_the_row_and_it_never_ships(tmp_path):
     env = _Env(tmp_path)
     _zip(env.dir, "00000001.zip")

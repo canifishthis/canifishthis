@@ -418,6 +418,18 @@ _LEAD_TIME = re.compile(r"^\s*(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+
 STILL_SHOWN = "still shown at export time"
 
 
+def export_time(export: Mapping) -> Optional[str]:
+    """The marks export's own time: `exported_at` starts with a time (words may follow, as the 04:25 export writes
+    "2026-11-28 04:25 MST (same 27 marks ...)"). None when absent; a value that does not start with a time is refused."""
+    raw = export.get("exported_at")
+    if raw is None:
+        return None
+    m = _LEAD_TIME.match(str(raw))
+    if not m:
+        raise SystemExit(f"marks export `exported_at` {raw!r}: does not start with a time")
+    return m.group(1)
+
+
 def export_windows(export: Mapping) -> List[dict]:
     """The marks export's `poses_shown` as windows [{run, from, until | still_showing_at}]. The export writes ONE block
     {run, from, to, note}: `from` a time followed by words, `to` a time or STILL_SHOWN (then the window ends at the
@@ -440,6 +452,13 @@ def export_windows(export: Mapping) -> List[dict]:
         if not mt:
             raise SystemExit(f"marks export `poses_shown` {w!r}: `to` is neither a time nor {STILL_SHOWN!r}")
         out.append({"run": w["run"], "from": m.group(1), "until": mt.group(1)})
+    # (2026-11-28 04:25 export) `switch_time_utc`: when the page moved to per-chart poses; a closed window must end there
+    sw = export.get("switch_time_utc")
+    if sw is not None:
+        closed = [w for w in out if "until" in w]
+        if not closed or any(parse_time(w["until"]) != parse_time(sw) for w in closed[-1:]):
+            raise SystemExit(f"marks export: `switch_time_utc` {sw!r} is not where the last closed `poses_shown` "
+                             f"window ends ({[w.get('until') for w in closed]})")
     return out
 
 
@@ -458,7 +477,8 @@ def page_from_spec(spec: str, export: Mapping) -> Page:
                          "(`poses_shown`); give FROM_TIME,UNTIL_TIME|showing@TIME")
     w = rows[0]
     if w.get("still_showing_at"):
-        return Page(label, Path(parts[1]), Path(parts[2]), w["from"], w["still_showing_at"], True)
+        end = export_time({"exported_at": w["still_showing_at"]})
+        return Page(label, Path(parts[1]), Path(parts[2]), w["from"], end, True)
     return Page(label, Path(parts[1]), Path(parts[2]), w["from"], w["until"])
 
 
@@ -847,7 +867,7 @@ def main(argv=None) -> int:
                     titles=run_doc.get("titles", {}),
                     zip_of=lambda n: (vectors.zip_path(n), vectors.zip_sha256(n)),
                     today=a.today or dt.date.today().isoformat(), by=a.by,
-                    marks_exported_at=export.get("exported_at"))
+                    marks_exported_at=export_time(export))
     report["run"] = {"label": a.run_label, "path": str(run_path), "sha256": file_sha256(run_path)}
     report["marks"] = str(a.marks) if a.marks else None
     report["pages"] = [dict(p.window(), refit=str(p.refit), sha256=p.sha256) for p in pages]
