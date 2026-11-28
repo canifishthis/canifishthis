@@ -171,3 +171,31 @@ def test_the_lines_bring_their_geometry_not_the_old_waters_ids():
     assert set(reg[f"gnis:{KI}"].ref_ids) == set(base[f"gnis:{KI}"].ref_ids) | blks
     assert set(reg[f"gnis:{SK}"].ref_ids) == set(base[f"gnis:{SK}"].ref_ids) - blks
     N.check_line_owners(reg, _owners(), g)                                   # and then it passes
+
+
+@pytest.mark.needs_bundle
+def test_the_creek_and_its_feeder_are_kitsumkalum_tributaries(request):
+    """(T1259, owner 2026-11-28, his pick: "Kitsumkalum tributary") on the bundle under test: the braids are the
+    Kitsumkalum River's sections, and the creek that joins them (360792160, 2.03 km) and its feeder (360464409, 0.54 km)
+    take the Kitsumkalum's rows as its tributaries (its Sunday closure to non-guided non-resident aliens, r2, and its bait
+    ban, r5), as the Kitsumkalum's own lines do (the Skeena's rows reach both as the Skeena's tributaries, as before). A
+    change that drops them back to the Skeena alone is seen here (the bundle without the line owners fails it)."""
+    import sqlite3
+    from pipeline.tests import under_test as U
+    db = sqlite3.connect(str(U.bundle(request)))
+    try:
+        def rules(blk):
+            return {e + " " + r for e, r in db.execute(
+                "SELECT DISTINCT rs.entry_id, rs.rule_id FROM section_measure m JOIN section_ruleset s ON s.sid = m.sid "
+                "JOIN ruleset rs ON rs.set_id = s.set_id WHERE m.blk = ?", (blk,))}
+        owner = {b: {i for (i,) in db.execute("SELECT DISTINCT i.item_id FROM section_measure m JOIN item_section s "
+                                              "ON s.sid = m.sid JOIN item i ON i.ord = s.ord WHERE m.blk = ?", (b,))}
+                 for b in (360222216, 360222215)}
+        assert owner == {360222216: {"gnis:3942"}, 360222215: {"gnis:3942"}}
+        for blk in (360792160, 360464409):
+            got = rules(blk)
+            assert got, f"blue line {blk} has no sections in this bundle"
+            assert {"r6:kitsumkalum_kalum_river@6-15 kitsumkalum_river.r2",
+                    "r6:kitsumkalum_kalum_river@6-15 kitsumkalum_river.r5"} <= got, blk
+    finally:
+        db.close()

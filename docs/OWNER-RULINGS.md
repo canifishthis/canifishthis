@@ -140,7 +140,7 @@ hand, the planning chat audits; Little Qualicum River and Lizard Lake are droppe
 See the principle above (one tributary logic). Build: T1177.
 
 ### The Kitsumkalum mouth (T1259, 2026-11-27)
-"the signsd for th emouth are really just saying that the mouth makes kitsumkalum include the braiding next to it on the skeena if that makes sense. it doesnt mean the mainstem of the skeeen is included in kitsumkalum only the sidechannel braiding there."; "thos e braids should be added as name variants of the stream and be moved to the stream instead of being part of the skeena all the way dopwn to the build step? "; with the A/B picture: "B: the braids become Kitsumkalum water" (the four stricter book rules shown). RULINGS E34.
+"the signsd for th emouth are really just saying that the mouth makes kitsumkalum include the braiding next to it on the skeena if that makes sense. it doesnt mean the mainstem of the skeeen is included in kitsumkalum only the sidechannel braiding there."; "thos e braids should be added as name variants of the stream and be moved to the stream instead of being part of the skeena all the way dopwn to the build step? "; with the A/B picture: "B: the braids become Kitsumkalum water" (the four stricter book rules shown). The creek and its feeder that join the braids (2.57 km), asked 2026-11-28 ("Stay a Skeena tributary (Recommended)" / "Kitsumkalum tributary" / "Wait for the size answer"): "Kitsumkalum tributary". RULINGS E34.
 
 ### T1084: creeks with no bank in the data
 "Record the method, build nothing (Recommended)". The 98 %-accurate geometry method is kept for the day a case appears.
