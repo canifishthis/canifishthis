@@ -1073,9 +1073,10 @@ def export_contours(out_dir: Path, build_dir: Path, *, placings: Path | None = N
             nbytes += len(raw)
             f = orjson.loads(raw)
             p = f["properties"]
+            # the tiles decide each line's zoom and index on its sheet's NATIVE unit (ladder.DEPTH_LADDER)
+            z, index = ladder.depth_line_zoom(p["native"], p["units"], floor=spec.minzoom)
             write(_to4326(LineString(f["geometry"]["coordinates"]), tf),
-                  {"item": p["item"], "depth_m": p["depth_m"], "index": 1 if p["index"] else None},
-                  ladder.zoom_for_contour(p["depth_m"], index=bool(p["index"]), floor=spec.minzoom))
+                  {"item": p["item"], "depth_m": p["depth_m"], "index": 1 if index else None}, z)
     n = close()
     print(f"  {'depth_contour':<16} <- {'placed_contours':<26} {n:>6,}  ({nbytes / 1e6:,.1f} MB placed)")
     return {"depth_contour": n}

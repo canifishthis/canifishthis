@@ -30,7 +30,8 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
 #: bump when the lines this writes change for the same inputs (the tiles' staleness check reads it)
-VERSION = 1
+#: 2: depth_m to 0.1 mm (was 0.1 m); index on the native unit (T1268, feet ladder)
+VERSION = 2
 FEET = 0.3048
 #: (named minimum) a piece of a contour line shorter than this after the shoreline cut is dropped (metres on the ground)
 MIN_PIECE_M = 15.0
@@ -40,8 +41,8 @@ CLIP_REPORT_PCT = 5.0
 MAX_VERTICES = 4_000_000
 #: output coordinates rounded to this many decimals (metres, EPSG:3005): 1 cm, below any tile's precision
 ROUND = 2
-#: an index (labelled) line: every multiple of this many metres
-INDEX_EVERY_M = 10.0
+#: depth_m kept to this many decimals (0.1 mm: a feet value converts back exactly, 325 ft = 99.06 m -> 325.0 ft)
+DEPTH_DECIMALS = 4
 #: the FWA layers a placed lake's outline comes from (the fitter's own: refit_all reads lakes + manmade)
 LAKE_LAYERS = ("lakes", "manmade")
 
@@ -149,15 +150,19 @@ def _merged(g) -> List:
 
 
 def depth_m(native: float, units: str) -> float:
+    """The line's depth in metres, kept exact (`DEPTH_DECIMALS`): the ONE feet -> metres conversion of the depth lines
+    (a feet value reads back as printed: round(depth_m / FEET) == the chart's number)."""
     if units == "metres":
-        return round(native, 1)
+        return round(native, DEPTH_DECIMALS)
     if units == "feet":
-        return round(native * FEET, 1)
+        return round(native * FEET, DEPTH_DECIMALS)
     raise ValueError(f"units {units!r}: only feet or metres are placed")
 
 
-def is_index(d_m: float) -> bool:
-    return d_m > 0 and abs(d_m / INDEX_EVERY_M - round(d_m / INDEX_EVERY_M)) < 1e-9
+def is_index(native: float, units: str) -> bool:
+    """An index (labelled) line, by the tiles' ladder on the sheet's NATIVE unit (`tiles.ladder.DEPTH_LADDER`)."""
+    from pipeline.deliver.tiles.ladder import depth_line_zoom
+    return depth_line_zoom(native, units)[1]
 
 
 def place_sheet(row: Mapping, contours: Iterable[Tuple], outlines: Mapping[int, object]) -> Tuple[List[dict], dict]:
@@ -197,7 +202,7 @@ def place_sheet(row: Mapping, contours: Iterable[Tuple], outlines: Mapping[int, 
                     stats[item]["total_m"] += piece.length              # a crossing piece counts for the lake it is in
                     stats[owner]["total_m"] -= piece.length
                 pieces.append({"item": item, "wbk": f"wbk:{w}", "sheet": row["sheet"], "depth_m": d,
-                               "native": native, "units": row["units"], "index": is_index(d),
+                               "native": native, "units": row["units"], "index": is_index(native, row["units"]),
                                "coords": [(round(x, ROUND), round(y, ROUND)) for x, y in piece.coords]})
     return pieces, stats
 
@@ -244,7 +249,7 @@ def build(frozen: Mapping, *, read_contours, outlines: Mapping[int, object], inp
                                     "title": per_lake[k]["title"]} for pct, k in over],
               "per_lake": dict(sorted(per_lake.items())),
               "policy": {"MIN_PIECE_M": MIN_PIECE_M, "CLIP_REPORT_PCT": CLIP_REPORT_PCT,
-                         "MAX_VERTICES": MAX_VERTICES, "INDEX_EVERY_M": INDEX_EVERY_M, "FEET": FEET}}
+                         "MAX_VERTICES": MAX_VERTICES, "DEPTH_DECIMALS": DEPTH_DECIMALS, "FEET": FEET}}
     if vertices > MAX_VERTICES:
         raise RuntimeError(f"placed depth contours: {vertices:,} vertices, over the gate MAX_VERTICES "
                            f"{MAX_VERTICES:,}; nothing written")

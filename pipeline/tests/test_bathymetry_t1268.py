@@ -53,7 +53,7 @@ def test_the_owner_s_adjustment_is_drawn_as_the_page_drew_it():
 def test_feet_are_converted_and_index_lines_are_every_10_m():
     lines = [(-10.0, "HA", SQUARE), (-30.0, "HA", SQUARE)]
     ft, _ = PC.place_sheet(_row(units="feet"), lines, {1: box(-1e3, -1e3, 1e3, 1e3)})
-    assert [(p["depth_m"], p["native"], p["index"]) for p in ft] == [(3.0, 10.0, False), (9.1, 30.0, False)]
+    assert [(p["depth_m"], p["native"], p["index"]) for p in ft] == [(3.048, 10.0, False), (9.144, 30.0, False)]
     m, _ = PC.place_sheet(_row(units="metres"), [(-5.0, "HA", SQUARE), (-20.0, "HA", SQUARE)], {1: box(-1e3, -1e3, 1e3, 1e3)})
     assert [(p["depth_m"], p["index"]) for p in m] == [(5.0, False), (20.0, True)]
     with pytest.raises(ValueError, match="only feet or metres"):
@@ -225,9 +225,47 @@ def test_the_layer_carries_item_depth_and_index_and_the_ladder(tmp_path, monkeyp
     assert set(feats[0]["properties"]) <= set(BY_NAME["depth_contour"].attrs)
 
 
-def test_index_lines_z11_five_metre_lines_z12_the_rest_z13():
-    assert ladder.zoom_for_contour(20.0, index=True) == 11
-    assert ladder.zoom_for_contour(5.0) == 12 and ladder.zoom_for_contour(3.0) == 13 and ladder.zoom_for_contour(9.1) == 13
+def test_a_feet_sheet_s_layer_takes_its_zooms_and_index_from_feet(tmp_path, monkeypatch):
+    inputs = {"placings_sha256": "p", "vectors_sha256": "v", "version": PC.VERSION}
+    placed = tmp_path / "placed"
+    pose = {"origin": [50.0, 50.0], "mirror": False, "scale": 1.0, "angle_deg": 0.0, "dx": 1_400_000.0, "dy": 700_000.0}
+    rows = [_row(pose=pose, units="feet")]
+    from shapely import affinity
+    outline = affinity.translate(box(0, 0, 100, 100), 1_400_000, 700_000)
+    lines = [(-100.0, "HA", SQUARE), (-50.0, "HA", SQUARE), (-20.0, "HA", SQUARE)]
+    PC.write(placed, *PC.build(_frozen(rows), read_contours=lambda r: lines, outlines={1: outline}, inputs=inputs))
+    monkeypatch.setattr(PC, "inputs_now", lambda *a, **k: inputs)
+    out = tmp_path / "layers"
+    out.mkdir()
+    export.export_contours(out, _reg(tmp_path), placings=_placings_file(tmp_path, rows), placed=placed)
+    feats = [json.loads(l) for l in (out / "depth_contour.geojsonl").read_text().splitlines()]
+    got = sorted((f["properties"]["depth_m"], f["properties"].get("index"), f["tippecanoe"]["minzoom"]) for f in feats)
+    assert got == [(6.096, None, 13), (15.24, None, 12), (30.48, 1, 11)]
+
+
+def test_the_ladder_is_decided_on_the_native_unit():
+    """Metres: 10 m index z11, 5 m z12, the rest z13. Feet: 100 ft index z11, 50 ft z12, the rest z13 (the converted
+    metres of a feet line are a multiple of nothing, so a metres rule drew no feet line below z13)."""
+    m = {d: ladder.depth_line_zoom(d, "metres") for d in (20.0, 5.0, 3.0)}
+    assert m == {20.0: (11, True), 5.0: (12, False), 3.0: (13, False)}
+    f = {d: ladder.depth_line_zoom(d, "feet") for d in (200.0, 150.0, 20.0, 10.0)}
+    assert f == {200.0: (11, True), 150.0: (12, False), 20.0: (13, False), 10.0: (13, False)}
+    with pytest.raises(ValueError, match="ladder knows"):
+        ladder.depth_line_zoom(3.0, "fathoms")
+
+
+def test_mutation_a_metres_ladder_on_feet_draws_nothing_below_z13():
+    """The measured failure: Charlotte Lake's 20-325 ft lines converted to metres hit no 5 m or 10 m multiple."""
+    ft = [20.0, 50.0, 75.0, 100.0, 125.0, 150.0, 200.0, 250.0, 300.0, 325.0]
+    as_metres = [ladder.depth_line_zoom(PC.depth_m(v, "feet"), "metres")[0] for v in ft]
+    native = [ladder.depth_line_zoom(v, "feet")[0] for v in ft]
+    assert min(as_metres) == 13 and min(native) == 11 and sum(z <= 12 for z in native) == 6
+
+
+def test_a_feet_depth_reads_back_as_printed():
+    for ft in (1.0, 5.0, 10.0, 25.0, 325.0, 684.0):
+        d = PC.depth_m(ft, "feet")
+        assert round(d / PC.FEET, 6) == ft
 
 
 def test_the_contract_names_depth_contour_and_no_longer_contour():

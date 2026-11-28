@@ -84,16 +84,28 @@ def zoom_for_area(area_m2: float | None, floor: int = MIN_ZOOM,
     return max(MAX_ZOOM, floor)
 
 
-def zoom_for_contour(depth_m: float | None, index: bool = False,
-                     floor: int = 11) -> int:
-    """Depth contours come in coarsest-first, so a lake is readable before it is detailed.
+#: (T1268) THE DEPTH-LINE LADDER, decided on the sheet's NATIVE unit (the value printed on the chart), never on the
+#: converted metres: {units: (index every, z12 every)}. An index line (labelled) is drawn from z11, a z12 line from z12,
+#: every other line from z13. Metres: 10 m / 5 m. Feet: 100 ft / 50 ft, measured 2026-11-28 on the 322 frozen lakes so a
+#: feet lake is about as dense per zoom as a metre lake (median share of a lake's lines at z11 / up to z12: metre sheets
+#: 0.05 / 0.11; feet 100/50 0.07 / 0.12; feet 50/25 0.12 / 0.13; feet 50/10 0.12 / 1.0). The converted 10 ft = 3.048 m is
+#: a multiple of nothing, so a metres rule on feet sheets drew no line below z13 (Charlotte Lake: 0 at z12).
+DEPTH_LADDER = {"metres": (10.0, 5.0), "feet": (100.0, 50.0)}
 
-    A 10 m contour is worth showing several zooms before a 1 m one. ``index``
-    marks the labelled contours, which lead.
-    """
-    d = abs(depth_m or 0)
-    if index or d % 10 == 0:
-        return max(floor, 11)
-    if d % 5 == 0:
-        return max(floor, 12)
-    return max(floor, 13)
+
+def depth_line_zoom(native: float, units: str, floor: int = 11) -> tuple[int, bool]:
+    """(minzoom, index) of one depth line from its NATIVE value and its sheet's units (`DEPTH_LADDER`). Raises on a
+    unit the ladder does not know (a line is never drawn on a guessed unit)."""
+    if units not in DEPTH_LADDER:
+        raise ValueError(f"depth line in {units!r}: the ladder knows {sorted(DEPTH_LADDER)}")
+    every_index, every_mid = DEPTH_LADDER[units]
+    d = abs(float(native))
+
+    def on(step):
+        return d > 0 and abs(d / step - round(d / step)) < 1e-9
+
+    if on(every_index):
+        return max(floor, 11), True
+    if on(every_mid):
+        return max(floor, 12), False
+    return max(floor, 13), False
