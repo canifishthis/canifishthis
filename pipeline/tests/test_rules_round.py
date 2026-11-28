@@ -777,7 +777,7 @@ def test_tributary_scope_sets_read_the_rules_own_scope(tmp_path):
 
 
 def test_tributary_row_keeps_a_false_flag():
-    """`rule.conditions` drops a false flag; `rule_tributary` keeps it, and has no row for a rule that says nothing."""
+    """`rule_tributary` keeps a rule's own false (as does `rule.conditions` since T1273), and has no row for a rule that says nothing."""
     from types import SimpleNamespace as N
     from pipeline.deliver.bundle.rules.row import tributary_row
     assert tributary_row("e", N(rule_id="r", includes_tributaries=None, tributaries_only=False,
