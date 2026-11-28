@@ -4,7 +4,7 @@ Status: OPEN.
 
 | id | title | status | commits | what's left |
 |---|---|---|---|---|
-| T1273 | 19 rules say "Covers X and its tributary streams" though their own line has no tributaries | OPEN | — | owner: 0.10.0 or after (## Owner); then the export carries a rule's own false flag, re-cut, pins |
+| T1273 | 19 rules say "Covers X and its tributary streams" though their own line has no tributaries | OPEN | — | owner: 0.10.0 or after (## Owner; 4 loosen); then the export carries a rule's own false flag, re-cut, pins |
 
 Source: lane T679-#12, 2026-11-28 (found while making the bundle carry each rule's tributary scope); measured on the
 baseline side build r-5e5e0369ce6d (origin/main a18c6168b + the T1199 fix).
@@ -31,6 +31,24 @@ undrawn-part notes and already say nothing.
 - The walk is right: the reach reads the curated rule (`reach.classify.wants_tributaries`, three-valued). On the
   baseline bundle the 19 rules have 0 `ruleset` rows with `via = 'trib'`; the Goat row's other rules do walk. No
   section's answer, colour or open/closed changes; only this sentence.
+- Where it shows: only `display.rules[ix].applies`, the "why it applies" line of the rule, on the main water's card
+  (501 rules carry the T1053 sentence, 19 of them wrongly). The tributaries' cards, the map, the part lists and search
+  read the bindings, which are right; the app composes no tributary words of its own.
+
+## Which way it misleads (baseline answers, `night-notes-2026-11-28-finish-up/T1273/loosening-check.txt`)
+4 of the 19 LOOSEN, 3 are neutral, 12 tighten. On the 4 the main river's card says a lift, a permission or a keep
+reaches its creeks, which READS MORE OPEN than the truth there; each creek's own card is right:
+- Mitchell River r3x "Spring stream closure lifted — downstream of Mitchell Lake". Card: "… Covers the part of Mitchell
+  River it names and the tributary streams joining that part (✱, p.4). It lifts “No fishing in streams, Apr 1-Jun 30
+  …” here." Cameron Creek, May 15, rainbow: closed ("No fishing, Oct 1–Jun 30", its own row).
+- Fulton River r3 "Angling permitted in Fulton River opposite the spawning channels, as signed". Card: "… Covers the
+  part of Fulton River it names and the tributary streams joining that part (✱, p.4)." McKendrick Creek, May 20,
+  rainbow: closed (Skeena–Nass "No fishing in streams, Jan 1–Jun 15").
+- Bella Coola r5 "Keep up to 2 trout and char a day (none under 25 cm), Apr 1–May 31" (and r6, its 1 cutthroat or
+  rainbow). Card: "… Covers Bella Coola River and its tributary streams (✱, p.4). It lifts “Trout and char — 1 per
+  day …” and “Cutthroat trout — release all” here." Necleetsconnay River, May 1: cutthroat release, rainbow keep 1.
+Neutral: Bella Coola r7, r8 (size caps of r5's keep), Tlell r5 (advisory, binds nowhere). Tighten: the closures,
+releases, boat and speed rules (Goat r1, Alouette r3, Kitimat r1/r2, …).
 
 ## Work (the fix as seen; nothing built)
 1. Make the export carry a rule's own `includes_tributaries: false`. Either (a) `row.py` keeps `false` for that one
@@ -49,12 +67,13 @@ undrawn-part notes and already say nothing.
 answers_diff against the release before: exactly the 19 `applies` lines change, "wording only", no answer; the two pins
 above red under their mutation; export diff = the `fields` key on the 43 rules + the 19 sentences.
 
-Severity: low to medium. Wording only, but it can mislead toward STRICTER: a tributary of the White River's
-"No fishing" part or of the Bella Coola's quota rules reads as covered when it is not. Never more open. Size: S.
+Severity: medium. Wording only, but on 4 rules a main river's card tells an angler that a lift, a permission or a
+2-a-day keep reaches its creeks, where the creek's own card says closed or release; on 12 it overstates a restriction.
+Size: S.
 Depends: none (option b depends on T679 #12). Owner: yes (when). Default: after 0.10.0.
 
 ## Owner
-- [ ] 2026-11-28 — 19 rules (Goat River "catch and release, mainstem only", Alouette "no powered boats on mainstem",
-  Kitimat "no fishing" by the hatchery, …) wrongly add "Covers X and its tributary streams" to the card; the map and
-  the answers are right. Fix it in 0.10.0 (a small wording change, a re-cut, the 19 sentences shown before/after) or
+- [ ] 2026-11-28 — 19 rules wrongly add "Covers X and its tributary streams" to the main river's card, 4 of them
+  rules that OPEN or ALLOW (Mitchell's lifted spring closure, Fulton's "angling permitted", Bella Coola's 2-a-day keep);
+  the creeks' own cards, the map and the answers are right. Fix it in 0.10.0 (a small wording change, a re-cut, the 19 sentences shown before/after) or
   after 0.10.0 (Default: after)?
