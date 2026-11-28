@@ -256,18 +256,41 @@ def test_the_export_writes_the_whole_layer_each_run_so_a_withdrawn_lake_s_lines_
     assert run([dict(one, **gone), dict(two, **gone)]) == ([], 0)
 
 
+def _globals_read(fn) -> set:
+    """Every global name a function's code reads, its nested functions' and comprehensions' included."""
+    import types
+    names, todo = set(), [fn.__code__]
+    while todo:
+        co = todo.pop()
+        names |= set(co.co_names)
+        todo += [c for c in co.co_consts if isinstance(c, types.CodeType)]
+    return names
+
+
 def test_every_constant_that_shapes_the_lines_is_in_the_policy_digest(monkeypatch):
     """Like POLICY_VERSION (AGENTS 20): a constant of the producer or of the depth ladder left out of `policy()` could
-    change the lines while `require_current` still passed the old set."""
+    change the lines while `require_current` still passed the old set. Both found automatically: every constant of the
+    producer, and every ladder constant the depth functions' code reads (a logic change needs a VERSION bump)."""
     from pipeline.deliver.tiles import ladder as L
     consts = {k for k, v in vars(PC).items() if k.isupper() and isinstance(v, (int, float, tuple)) and k != "COMMAND"}
-    consts |= {"NICE_STEPS", "INDEX_LINES_MIN", "INDEX_LINES_MAX", "MIDDLE_LINES_FACTOR"}
+    read = set().union(*(_globals_read(f) for f in (L._on, L.sheet_ladder, L.depth_line_zoom)))
+    ladder_consts = {k for k in read if k.isupper() and isinstance(getattr(L, k, None), (int, float, tuple))}
+    assert {"NICE_STEPS", "INDEX_LINES_MIN", "INDEX_LINES_MAX", "MIDDLE_LINES_FACTOR", "DEPTH_ON_TOLERANCE",
+            "DEPTH_INDEX_ZOOM", "DEPTH_MIDDLE_ZOOM", "DEPTH_REST_ZOOM"} <= ladder_consts      # the scan sees them
+    # the function default (`floor`) is read at definition, not by the code: it must be one of those constants
+    assert L.depth_line_zoom.__defaults__ == (L.DEPTH_INDEX_ZOOM,)
+    consts |= ladder_consts
     assert consts <= set(PC.policy()), sorted(consts - set(PC.policy()))
+    for k in ladder_consts:
+        assert PC.policy()[k] == (list(getattr(L, k)) if isinstance(getattr(L, k), tuple) else getattr(L, k)), k
     before = PC.policy_digest()
     monkeypatch.setattr(PC, "MIN_PIECE_M", PC.MIN_PIECE_M + 1)
     assert PC.policy_digest() != before
     monkeypatch.setattr(PC, "MIN_PIECE_M", PC.MIN_PIECE_M - 1)
     monkeypatch.setattr(L, "INDEX_LINES_MAX", L.INDEX_LINES_MAX + 1)
+    assert PC.policy_digest() != before
+    monkeypatch.setattr(L, "INDEX_LINES_MAX", L.INDEX_LINES_MAX - 1)
+    monkeypatch.setattr(L, "DEPTH_ON_TOLERANCE", 1e-3)
     assert PC.policy_digest() != before
 
 

@@ -96,10 +96,20 @@ NICE_STEPS = tuple(round(m * 10 ** k, 6) for k in range(-1, 4) for m in (1, 2, 5
 INDEX_LINES_MIN = 2
 INDEX_LINES_MAX = 4
 MIDDLE_LINES_FACTOR = 3
+#: a depth level is "on" a step when value / step is within this of a whole number (the levels are read as floats)
+DEPTH_ON_TOLERANCE = 1e-6
+#: the first zoom of an index (labelled) line, of a middle-step line, and of every other depth line
+DEPTH_INDEX_ZOOM = 11
+DEPTH_MIDDLE_ZOOM = 12
+DEPTH_REST_ZOOM = 13
+#: EVERY constant the depth functions below read is in `pipeline.bathymetry.placed_contours.policy()`, whose digest the
+#: placed set is keyed on (`test_bathymetry_t1268` reads their code for the names, so a new one cannot be missed). A
+#: change of their LOGIC (`_on`, `sheet_ladder`, `depth_line_zoom`) with the same constants changes the lines while the
+#: digest stays: it needs a bump of `placed_contours.VERSION` (that is what VERSION is for).
 
 
 def _on(value: float, step: float) -> bool:
-    return value > 0 and abs(value / step - round(value / step)) < 1e-6
+    return value > 0 and abs(value / step - round(value / step)) < DEPTH_ON_TOLERANCE
 
 
 def sheet_ladder(levels) -> tuple[float, float | None]:
@@ -130,12 +140,13 @@ def sheet_ladder(levels) -> tuple[float, float | None]:
     raise ValueError(f"levels {lv[:8]}...: no nice step leaves an index line")
 
 
-def depth_line_zoom(native: float, ladder_steps: tuple[float, float | None], floor: int = 11) -> tuple[int, bool]:
+def depth_line_zoom(native: float, ladder_steps: tuple[float, float | None],
+                    floor: int = DEPTH_INDEX_ZOOM) -> tuple[int, bool]:
     """(minzoom, index) of one depth line from its NATIVE value and its sheet's (index step, middle step or None)."""
     index_step, mid_step = ladder_steps
     d = abs(float(native))
     if _on(d, index_step):
-        return max(floor, 11), True
+        return max(floor, DEPTH_INDEX_ZOOM), True
     if mid_step is not None and _on(d, mid_step):
-        return max(floor, 12), False
-    return max(floor, 13), False
+        return max(floor, DEPTH_MIDDLE_ZOOM), False
+    return max(floor, DEPTH_REST_ZOOM), False

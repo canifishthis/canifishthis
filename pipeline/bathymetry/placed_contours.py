@@ -61,13 +61,17 @@ def out_dir() -> Path:
 
 def policy() -> dict:
     """EVERY constant that shapes the placed lines (`test_bathymetry_t1268` fails on a module constant missing here):
-    its digest is an input of the set, so a changed constant can never pass `require_current` with old lines."""
+    its digest is an input of the set, so a changed constant can never pass `require_current` with old lines.
+    The digest holds VALUES only: a change of the producer's or the depth ladder's LOGIC that changes the lines for the
+    same inputs needs a `VERSION` bump (that is what VERSION is for)."""
     from pipeline.deliver.tiles import ladder
     return {"VERSION": VERSION, "FEET": FEET, "MIN_PIECE_M": MIN_PIECE_M, "CLIP_REPORT_PCT": CLIP_REPORT_PCT,
             "MAX_VERTICES": MAX_VERTICES, "ROUND": ROUND, "DEPTH_DECIMALS": DEPTH_DECIMALS,
             "LAKE_LAYERS": list(LAKE_LAYERS), "NICE_STEPS": list(ladder.NICE_STEPS),
             "INDEX_LINES_MIN": ladder.INDEX_LINES_MIN, "INDEX_LINES_MAX": ladder.INDEX_LINES_MAX,
-            "MIDDLE_LINES_FACTOR": ladder.MIDDLE_LINES_FACTOR,
+            "MIDDLE_LINES_FACTOR": ladder.MIDDLE_LINES_FACTOR, "DEPTH_ON_TOLERANCE": ladder.DEPTH_ON_TOLERANCE,
+            "DEPTH_INDEX_ZOOM": ladder.DEPTH_INDEX_ZOOM, "DEPTH_MIDDLE_ZOOM": ladder.DEPTH_MIDDLE_ZOOM,
+            "DEPTH_REST_ZOOM": ladder.DEPTH_REST_ZOOM,
             "EVERY_DRAWN_LAKE_HAS_AN_INDEX_LINE": EVERY_DRAWN_LAKE_HAS_AN_INDEX_LINE}
 
 
