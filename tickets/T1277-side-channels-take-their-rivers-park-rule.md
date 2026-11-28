@@ -8,7 +8,9 @@ Status: OPEN — a future release, not 0.10.0; owner: see ## Owner
 
 Source: finish-up chat (T1240 lane), 2026-11-28, and the owner's rulings of that morning (below). Write-up:
 `night-notes-2026-11-28-finish-up/T1240/STRATHCONA-NONCUT.md`; picture: `T1277-shots/STRATHCONA-noncut-burman.png`.
-Related: T1240, T1199, T1149.
+Related: T1240, T1199, T1149. The data chat's parked branch `fix/T1199-edge-call-for-a-squeezed-piece` (head 083a369d6,
+local, unpushed, off main 635b16147) was built for the Strathcona squeezed piece; it is not gated and not reviewed. It is
+the ready mechanism: `area_edge_calls.json` gains "inside"/"outside" for one piece run, with no POLICY or reach-key change.
 
 ## What anglers see
 
