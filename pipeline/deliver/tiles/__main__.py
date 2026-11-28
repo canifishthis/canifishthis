@@ -113,7 +113,7 @@ def main() -> None:
     counts: dict[str, int] = {}
     print("admin geography")
     counts |= export.export_admin(a.gpkg, layer_dir)
-    counts |= export.export_contours(a.gpkg, layer_dir)
+    counts |= export.export_contours(layer_dir)          # (T1268) the frozen depth placings' lines only
     # THE FIELD, for the zooms where a river is a hairline — see tiles/basins.py. Grouped
     # with admin geography rather than with water because it is neither: it is the ground a
     # reading is a claim about, and it draws only below the zoom the rivers take over at.
@@ -142,8 +142,10 @@ def main() -> None:
         counts |= _tidal.export_tidal(a.gpkg, layer_dir, tgeoms)
 
     print(f"\nfeatures: {sum(counts.values()):,}")
-    for k in sorted(counts):
-        print(f"  {k:<16} {counts[k]:>9,}")
+    for k in sorted(counts):                    # (T1268) a size line per layer: its features and its layer file
+        f = layer_dir / f"{k}.geojsonl"
+        mb = f"{f.stat().st_size / 1e6:>9,.1f} MB" if f.exists() else ""
+        print(f"  {k:<16} {counts[k]:>9,}{mb}")
     print(f"export took {time.time() - t0:,.0f}s")
 
     if a.no_archive:

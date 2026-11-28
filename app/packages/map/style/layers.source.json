@@ -1981,7 +1981,7 @@
       "id": "contour",
       "group": "depth",
       "source": "atlas",
-      "sourceLayer": "contour",
+      "sourceLayer": "depth_contour",
       "geometry": "line",
       "featureIdProperty": "item",
       "highlightable": false,

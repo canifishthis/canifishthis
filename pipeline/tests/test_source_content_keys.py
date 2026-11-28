@@ -16,7 +16,8 @@ from pipeline import build as B
 
 #: the files the three keys stamp, by the name `sources()` / `obstacles_source()` give them
 FILES = {"gpkg": "fwa.gpkg", "stations": "bc_hydrometric_stations.json", "places": "bc_places.json",
-         "hydat": "hydat.sqlite3", "obstacles": "fish_obstacles.gpkg"}
+         "hydat": "hydat.sqlite3", "obstacles": "fish_obstacles.gpkg",
+         "depth_vectors": "bathymetry_vectors.sha256.json"}
 #: a fixed mtime (ns) for every file, so "a touch" and "the same second" are exact
 T0 = 1_700_000_000_000_000_000
 
@@ -57,6 +58,7 @@ def keys_in(tmp_path: Path, monkeypatch):
         monkeypatch.setattr(B, "CLIM_PATH", root / "generated" / "clim.json")
         monkeypatch.setattr(B, "sources", lambda: {k: src / FILES[k] for k in ("gpkg", "stations", "places", "hydat")})
         monkeypatch.setattr(B, "obstacles_source", lambda: src / FILES["obstacles"])
+        monkeypatch.setattr(B, "depth_vectors_source", lambda: src / FILES["depth_vectors"])
         build = root / "atlas"
         return {"clim": B.clim_key(), "tiles": B.tiles_key(build), "deliver": B.deliver_sources()}
     return at
@@ -103,7 +105,7 @@ def test_a_touch_leaves_the_keys_alike_and_costs_one_rehash(tmp_path, keys_in, m
     assert keys_in(a) == before and hashed == [FILES["gpkg"]]       # ...and then it matches
 
 
-@pytest.mark.parametrize("which", ["gpkg", "hydat", "stations", "places", "obstacles"])
+@pytest.mark.parametrize("which", ["gpkg", "hydat", "stations", "places", "obstacles", "depth_vectors"])
 def test_a_one_byte_change_moves_the_keys(tmp_path, keys_in, which):
     """Same size, and the same whole second (an mtime-in-seconds stamp cannot see it): the bytes move the key."""
     a, _b = _two(tmp_path)
@@ -116,7 +118,7 @@ def test_a_one_byte_change_moves_the_keys(tmp_path, keys_in, which):
     after = keys_in(a)
     moved = {k for k in after if after[k] != before[k]}
     want = {"gpkg": {"tiles", "deliver"}, "hydat": {"clim", "deliver"}, "stations": {"clim", "deliver"},
-            "places": {"deliver"}, "obstacles": {"tiles"}}[which]
+            "places": {"deliver"}, "obstacles": {"tiles"}, "depth_vectors": {"tiles"}}[which]
     assert moved == want
 
 

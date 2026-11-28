@@ -410,7 +410,7 @@
       "id": "contour",
       "type": "line",
       "source": "atlas",
-      "source-layer": "contour",
+      "source-layer": "depth_contour",
       "layout": {
         "visibility": "none"
       }

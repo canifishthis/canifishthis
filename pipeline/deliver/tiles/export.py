@@ -1048,36 +1048,35 @@ def export_admin(gpkg: str, out_dir: Path) -> dict:
     return {lname: close() for lname, (_, close) in writers.items()}
 
 
-def export_contours(gpkg: str, out_dir: Path) -> dict:
-    """Digitised lake bathymetry. Absent until `fetch_data.py bathymetry_contours` runs —
-    a missing layer is a skip, never a failure, because the rest of the map is still valid."""
-    import fiona
-    import geopandas as gpd
+def export_contours(out_dir: Path, *, placings: Path | None = None, placed: Path | None = None) -> dict:
+    """(T1268) The placed lake depth lines, `depth_contour`: ONLY the frozen placings' lines
+    (`pipeline.bathymetry.placed_contours`). No frozen row: the layer is empty (nothing accepted yet). Frozen rows and
+    the placed set missing or made from other inputs: RAISES naming the command (W46; it used to skip a missing gpkg
+    layer, and the map then shipped without depth while saying nothing)."""
+    import orjson
     from pyproj import Transformer
-    if "bathymetry_contours" not in set(fiona.listlayers(gpkg)):
-        print("  contour          <- not fetched yet, skipping")
-        return {"contour": 0}
+    from shapely.geometry import LineString
+    from pipeline.bathymetry import placed_contours, placings as _placings
+    frozen = _placings.load(placings)
+    spec = BY_NAME["depth_contour"]
+    if not frozen["placings"]:
+        print(f"  {'depth_contour':<16} <- no frozen placings (data/curated/bathymetry/placings.json): empty")
+        return {"depth_contour": 0}
+    lines = placed_contours.require_current(placed, inputs=placed_contours.inputs_now(placings))
     tf = Transformer.from_crs(3005, 4326, always_xy=True)
-    spec = BY_NAME["contour"]
     write, close = _writer(out_dir, spec)
-    gdf = gpd.read_file(gpkg, layer="bathymetry_contours", engine="pyogrio")
-    if gdf.crs and gdf.crs.to_epsg() != 3005:
-        gdf = gdf.to_crs(3005)
-    depth_col = next((c for c in gdf.columns if "DEPTH" in c.upper()), None)
-    wb_col = next((c for c in gdf.columns if "WATERBODY" in c.upper()), None)
-    for _, row in gdf.iterrows():
-        g = row.geometry
-        if g is None or g.is_empty:
-            continue
-        d = row.get(depth_col) if depth_col else None
-        d = float(d) if d is not None else None
-        write(_to4326(g.boundary if g.geom_type in ("Polygon", "MultiPolygon") else g, tf),
-              {"item": row.get(wb_col), "depth_m": d,
-               "index": 1 if (d and d % 10 == 0) else None},
-              ladder.zoom_for_contour(d, floor=spec.minzoom))
+    nbytes = 0
+    with lines.open("rb") as fh:
+        for raw in fh:
+            nbytes += len(raw)
+            f = orjson.loads(raw)
+            p = f["properties"]
+            write(_to4326(LineString(f["geometry"]["coordinates"]), tf),
+                  {"item": p["item"], "depth_m": p["depth_m"], "index": 1 if p["index"] else None},
+                  ladder.zoom_for_contour(p["depth_m"], index=bool(p["index"]), floor=spec.minzoom))
     n = close()
-    print(f"  contour          <- bathymetry_contours {n:>6,}")
-    return {"contour": n}
+    print(f"  {'depth_contour':<16} <- {'placed_contours':<26} {n:>6,}  ({nbytes / 1e6:,.1f} MB placed)")
+    return {"depth_contour": n}
 
 
 # NO RANK TABLE HERE. `data/fetch_data.py` assigns the rank when it fetches the gazetteer
