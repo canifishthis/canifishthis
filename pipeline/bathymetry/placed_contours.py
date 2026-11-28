@@ -1,7 +1,8 @@
 """The placed depth contours (T1268 W3): the ONE producer of the depth lines the tiles draw and of the per-lake depth
 facts (AGENTS 56).
 
-For each FROZEN placing only (`CURATED.bathymetry.placings`, T1267), nothing else:
+For each SHIPPING frozen placing only (`placings.shipping(CURATED.bathymetry.placings)`, T1267: a withdrawn row draws
+nothing), nothing else:
   zip (hash-checked, `vectors.zip_path`) -> its depth arcs (CONTOUR not 0) -> metres (feet x 0.3048, the row's units)
   -> the row's pose (`refit.apply`: mirror, scale, turn about the sheet origin, shift; the owner's adjustment is already
   composed into it) -> cut at each of the row's lakes' FWA shoreline (`lake_outlines`): a two-lake sheet's lines go to
@@ -187,10 +188,13 @@ def facts_row(row: Mapping, pieces: List[dict], item: str, wbk: str) -> dict:
 
 
 def build(frozen: Mapping, *, read_contours, outlines: Mapping[int, object], inputs: dict) -> Tuple[list, dict, dict]:
-    """(pieces sorted, facts, report) for every frozen row. `read_contours(row)` -> the sheet's (CONTOUR, FCODE, pts)."""
+    """(pieces sorted, facts, report) for every SHIPPING frozen row (`placings.shipping`: a withdrawn row draws
+    nothing). `read_contours(row)` -> the sheet's (CONTOUR, FCODE, pts)."""
+    from pipeline.bathymetry.placings import shipping
+    rows = shipping(frozen)
     pieces: List[dict] = []
     facts, per_lake = [], {}
-    for row in sorted(frozen["placings"], key=lambda r: r["sheet"]):
+    for row in sorted(rows, key=lambda r: r["sheet"]):
         ps, st = place_sheet(row, read_contours(row), outlines)
         pieces += ps
         for lk in row["lakes"]:
@@ -206,7 +210,8 @@ def build(frozen: Mapping, *, read_contours, outlines: Mapping[int, object], inp
     vertices = sum(len(p["coords"]) for p in pieces)
     over = sorted(((v["clipped_pct"], k) for k, v in per_lake.items() if v["clipped_pct"] > CLIP_REPORT_PCT),
                   reverse=True)
-    report = {"inputs": inputs, "rows": len(frozen["placings"]), "lakes": len(facts), "pieces": len(pieces),
+    report = {"inputs": inputs, "rows": len(rows), "withdrawn_not_drawn": len(frozen["placings"]) - len(rows),
+              "lakes": len(facts), "pieces": len(pieces),
               "vertices": vertices, "index_pieces": sum(1 for p in pieces if p["index"]),
               "clipped_over_pct": [{"item": k, "clipped_pct": pct, "sheet": per_lake[k]["sheet"],
                                     "title": per_lake[k]["title"]} for pct, k in over],
@@ -255,13 +260,13 @@ def main(argv=None) -> int:
     d = a.out or out_dir()
     frozen = placings.load()
     if a.check:
-        if not frozen["placings"]:
-            print("no frozen placings: nothing to place")
+        if not placings.shipping(frozen):
+            print("no shipping frozen placings: nothing to place")
             return 0
         print(require_current(d))
         return 0
     inputs = inputs_now()
-    rows = frozen["placings"]
+    rows = placings.shipping(frozen)
     wbks = [int(lk["wbk"].split(":")[1]) for r in rows for lk in r["lakes"]]
     outlines = lake_outlines(Path(a.gpkg or SOURCE.fwa_gpkg), wbks)
 

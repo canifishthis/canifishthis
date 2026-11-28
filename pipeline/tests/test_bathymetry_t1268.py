@@ -126,6 +126,22 @@ def test_a_lake_clipped_over_the_line_is_listed():
     assert rep["clipped_over_pct"] == [{"item": "wbk:1", "clipped_pct": 50.0, "sheet": "00000001", "title": "TEST LAKE"}]
 
 
+def test_a_withdrawn_row_draws_nothing(tmp_path):
+    keep, gone = _row("00000001"), dict(_row("00000002", lakes=(("wbk:2", 2),)), status="withdrawn",
+                                        withdrawn={"reason": "owner_marked_wrong_fit"})
+    pieces, facts, rep = _build([keep, gone], {1: box(-1e3, -1e3, 1e3, 1e3), 2: box(-1e3, -1e3, 1e3, 1e3)})
+    assert {p["sheet"] for p in pieces} == {"00000001"} and [f["item"] for f in facts["lakes"]] == ["wbk:1"]
+    assert rep["rows"] == 1 and rep["withdrawn_not_drawn"] == 1
+
+
+def test_only_withdrawn_rows_draw_an_empty_layer_without_a_placed_set(tmp_path):
+    out = tmp_path / "layers"
+    out.mkdir()
+    gone = dict(_row(), status="withdrawn", withdrawn={"reason": "owner_marked_unsure"})
+    assert export.export_contours(out, placings=_placings_file(tmp_path, [gone]), placed=tmp_path / "nowhere") == \
+        {"depth_contour": 0}
+
+
 def test_old_lines_are_refused_after_a_new_freeze(tmp_path):
     with pytest.raises(PC.StalePlacedContours, match="no placed depth contours"):
         PC.require_current(tmp_path, inputs={"placings_sha256": "p"})

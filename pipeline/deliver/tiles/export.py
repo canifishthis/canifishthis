@@ -1050,7 +1050,7 @@ def export_admin(gpkg: str, out_dir: Path) -> dict:
 
 def export_contours(out_dir: Path, *, placings: Path | None = None, placed: Path | None = None) -> dict:
     """(T1268) The placed lake depth lines, `depth_contour`: ONLY the frozen placings' lines
-    (`pipeline.bathymetry.placed_contours`). No frozen row: the layer is empty (nothing accepted yet). Frozen rows and
+    (`pipeline.bathymetry.placed_contours`), the SHIPPING view only. No shipping row: the layer is empty. Shipping rows and
     the placed set missing or made from other inputs: RAISES naming the command (W46; it used to skip a missing gpkg
     layer, and the map then shipped without depth while saying nothing)."""
     import orjson
@@ -1059,8 +1059,8 @@ def export_contours(out_dir: Path, *, placings: Path | None = None, placed: Path
     from pipeline.bathymetry import placed_contours, placings as _placings
     frozen = _placings.load(placings)
     spec = BY_NAME["depth_contour"]
-    if not frozen["placings"]:
-        print(f"  {'depth_contour':<16} <- no frozen placings (data/curated/bathymetry/placings.json): empty")
+    if not _placings.shipping(frozen):          # withdrawn rows are a record, never drawn
+        print(f"  {'depth_contour':<16} <- no shipping frozen placings (bathymetry/placings.json): empty")
         return {"depth_contour": 0}
     lines = placed_contours.require_current(placed, inputs=placed_contours.inputs_now(placings))
     tf = Transformer.from_crs(3005, 4326, always_xy=True)
