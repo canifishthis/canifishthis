@@ -31,8 +31,9 @@ from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
 #: bump when the lines this writes change for the same inputs (the tiles' staleness check reads it)
 #: 2: depth_m to 0.1 mm (was 0.1 m); index on the native unit (T1268, feet ladder). 3: the per-sheet ladder; minzoom
-#: in the placed file. 4: the lighter ladder (INDEX_LINES_MAX 4, the middle tier capped at 3x)
-VERSION = 4
+#: in the placed file. 4: the lighter ladder (INDEX_LINES_MAX 4, the middle tier capped at 3x). 5: an index line
+#: guaranteed AFTER the shoreline cut (`EVERY_DRAWN_LAKE_HAS_AN_INDEX_LINE`; the 322 frozen lakes' lines unchanged)
+VERSION = 5
 FEET = 0.3048
 #: (named minimum) a piece of a contour line shorter than this after the shoreline cut is dropped (metres on the ground)
 MIN_PIECE_M = 15.0
@@ -46,6 +47,11 @@ ROUND = 2
 DEPTH_DECIMALS = 4
 #: the FWA layers a placed lake's outline comes from (the fitter's own: refit_all reads lakes + manmade)
 LAKE_LAYERS = ("lakes", "manmade")
+#: (T1268 re-review b) EVERY LAKE THAT DRAWS A LINE DRAWS A NUMBERED (INDEX) ONE. The ladder picks the index step from
+#: the whole sheet's levels BEFORE the shoreline cut (`ladder.sheet_ladder`), and the cut can remove every index level
+#: from a lake (lines on land, or a two-lake sheet's index lines all in the other lake). Then that lake's DEEPEST drawn
+#: level becomes its index line (z11, labelled). Measured 2026-11-28: 0 of the 322 frozen lakes needed it.
+EVERY_DRAWN_LAKE_HAS_AN_INDEX_LINE = True
 
 
 def out_dir() -> Path:
@@ -61,7 +67,8 @@ def policy() -> dict:
             "MAX_VERTICES": MAX_VERTICES, "ROUND": ROUND, "DEPTH_DECIMALS": DEPTH_DECIMALS,
             "LAKE_LAYERS": list(LAKE_LAYERS), "NICE_STEPS": list(ladder.NICE_STEPS),
             "INDEX_LINES_MIN": ladder.INDEX_LINES_MIN, "INDEX_LINES_MAX": ladder.INDEX_LINES_MAX,
-            "MIDDLE_LINES_FACTOR": ladder.MIDDLE_LINES_FACTOR}
+            "MIDDLE_LINES_FACTOR": ladder.MIDDLE_LINES_FACTOR,
+            "EVERY_DRAWN_LAKE_HAS_AN_INDEX_LINE": EVERY_DRAWN_LAKE_HAS_AN_INDEX_LINE}
 
 
 def policy_digest() -> str:
@@ -199,7 +206,8 @@ def place_sheet(row: Mapping, contours: Iterable[Tuple], outlines: Mapping[int, 
     contours = list(contours)
     levels = [abs(float(cv)) for cv, _f, pts in contours if cv not in (None, 0) and len(pts) >= 2]
     steps = sheet_ladder(levels) if levels else None     # the sheet's own ladder, from all its levels (native unit)
-    stats = {item: {"total_m": 0.0, "kept_m": 0.0, "stubs": 0, "stub_m": 0.0} for item, _w in lakes}
+    stats = {item: {"total_m": 0.0, "kept_m": 0.0, "stubs": 0, "stub_m": 0.0, "index_from_deepest": None}
+             for item, _w in lakes}
     pieces = []
     for cv, _fc, pts in contours:
         if cv in (None, 0) or len(pts) < 2:
@@ -226,6 +234,16 @@ def place_sheet(row: Mapping, contours: Iterable[Tuple], outlines: Mapping[int, 
                 pieces.append({"item": item, "wbk": f"wbk:{w}", "sheet": row["sheet"], "depth_m": d,
                                "native": native, "units": row["units"], "index": index, "minzoom": z,
                                "coords": [(round(x, ROUND), round(y, ROUND)) for x, y in piece.coords]})
+    if EVERY_DRAWN_LAKE_HAS_AN_INDEX_LINE:
+        for item, _w in lakes:
+            mine = [p for p in pieces if p["item"] == item]
+            if mine and not any(p["index"] for p in mine):
+                deepest = max(p["native"] for p in mine)
+                z, _index = depth_line_zoom(deepest, (deepest, None))      # its own index step: (z11, True)
+                for p in mine:
+                    if p["native"] == deepest:
+                        p["index"], p["minzoom"] = True, z
+                stats[item]["index_from_deepest"] = deepest
     return pieces, stats
 
 
@@ -258,7 +276,8 @@ def build(frozen: Mapping, *, read_contours, outlines: Mapping[int, object], inp
             per_lake[lk["item"]] = {"sheet": row["sheet"], "title": row.get("title"),
                                     "total_m": round(s["total_m"], 1), "kept_m": round(s["kept_m"], 1),
                                     "clipped_pct": round(100 * clipped / s["total_m"], 2) if s["total_m"] else 0.0,
-                                    "stubs_dropped": s["stubs"], "stub_m": round(s["stub_m"], 1)}
+                                    "stubs_dropped": s["stubs"], "stub_m": round(s["stub_m"], 1),
+                                    "index_from_deepest": s["index_from_deepest"]}
     pieces.sort(key=lambda p: (p["item"], p["depth_m"], p["coords"][0], p["coords"][-1], len(p["coords"])))
     facts.sort(key=lambda f: f["item"])
     vertices = sum(len(p["coords"]) for p in pieces)
@@ -267,6 +286,8 @@ def build(frozen: Mapping, *, read_contours, outlines: Mapping[int, object], inp
     report = {"inputs": inputs, "rows": len(rows), "withdrawn_not_drawn": len(frozen["placings"]) - len(rows),
               "lakes": len(facts), "pieces": len(pieces),
               "vertices": vertices, "index_pieces": sum(1 for p in pieces if p["index"]),
+              # lakes whose index line is their deepest drawn level (`EVERY_DRAWN_LAKE_HAS_AN_INDEX_LINE`)
+              "index_from_deepest": sorted(k for k, v in per_lake.items() if v["index_from_deepest"] is not None),
               "clipped_over_pct": [{"item": k, "clipped_pct": pct, "sheet": per_lake[k]["sheet"],
                                     "title": per_lake[k]["title"]} for pct, k in over],
               "per_lake": dict(sorted(per_lake.items())),
@@ -303,12 +324,26 @@ def write(directory: Path, pieces: list, facts: dict, report: dict) -> None:
     os.replace(d / "report.json.tmp", rep)
 
 
+def read_sheet(row: Mapping) -> list:
+    """One frozen row's depth arcs (CONTOUR, FCODE, pts) from its zip, proved against the committed list AND the sha256
+    frozen with the row (`vectors.zip_path` / `zip_sha256`); its one coverage named in the row, else it raises."""
+    from pipeline.bathymetry import e00, vectors
+    z = vectors.zip_path(row["zip"])
+    if vectors.zip_sha256(row["zip"]) != row["zip_sha256"]:
+        raise vectors.VectorSourceError(f"{row['zip']}: the committed hash differs from the one frozen with "
+                                        f"placing {row['sheet']}")
+    sh = [s for s in e00.read_zip_all(z) if s.lines.name == row["coverage"]]
+    if len(sh) != 1:
+        raise e00.E00Error(f"{z}: {len(sh)} coverages named {row['coverage']}")
+    return sh[0].contours()
+
+
 def make(frozen: Mapping, *, build_dir: Path, out: Optional[Path] = None, gpkg: Optional[Path] = None,
          inputs: Optional[dict] = None) -> dict:
     """THE one way the placed set is made (the CLI and the tiles stage both call it): every shipping row's lake item in
     the atlas at `build_dir` (else it raises), its FWA outlines, each zip proved against the committed list AND the
     sha256 frozen with its row, the lines built, the size gate, the three files written. Returns the report."""
-    from pipeline.bathymetry import e00, placings, vectors
+    from pipeline.bathymetry import placings
     from pipeline.common.curated import SOURCE
     d = Path(out or out_dir())
     inputs = inputs or inputs_now(gpkg=gpkg)
@@ -317,17 +352,7 @@ def make(frozen: Mapping, *, build_dir: Path, out: Optional[Path] = None, gpkg: 
     wbks = [int(lk["wbk"].split(":")[1]) for r in rows for lk in r["lakes"]]
     outlines = lake_outlines(Path(gpkg or SOURCE.fwa_gpkg), wbks)
 
-    def read_contours(row):
-        z = vectors.zip_path(row["zip"])
-        if vectors.zip_sha256(row["zip"]) != row["zip_sha256"]:
-            raise vectors.VectorSourceError(f"{row['zip']}: the committed hash differs from the one frozen with "
-                                            f"placing {row['sheet']}")
-        sh = [s for s in e00.read_zip_all(z) if s.lines.name == row["coverage"]]
-        if len(sh) != 1:
-            raise e00.E00Error(f"{z}: {len(sh)} coverages named {row['coverage']}")
-        return sh[0].contours()
-
-    pieces, facts, report = build(frozen, read_contours=read_contours, outlines=outlines, inputs=inputs)
+    pieces, facts, report = build(frozen, read_contours=read_sheet, outlines=outlines, inputs=inputs)
     write(d, pieces, facts, report)
     print(f"placed depth lines: {report['rows']} sheets, {report['lakes']} lakes, {report['pieces']:,} pieces, "
           f"{report['vertices']:,} vertices; {len(report['clipped_over_pct'])} lakes over {CLIP_REPORT_PCT} % "

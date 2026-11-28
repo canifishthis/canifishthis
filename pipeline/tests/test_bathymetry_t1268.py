@@ -373,3 +373,62 @@ def test_a_side_tiles_build_keeps_its_placed_set_under_its_own_folder(tmp_path, 
     assert inspect.signature(export.export_contours).parameters["placed"].default is inspect.Parameter.empty
     src = inspect.getsource(tiles_main.main)
     assert "export.export_contours(layer_dir, build_dir, placed=placed_home(out_dir))" in src
+
+
+ON_LAND = [(500, 500), (600, 500)]                  # outside the 0..100 test lake
+
+
+def test_a_lake_whose_index_levels_the_cut_removed_numbers_its_deepest_drawn_line():
+    """Re-review (b): the ladder picks the index step from the whole sheet BEFORE the shoreline cut. Levels 10-50 m:
+    index 20 / 40, middle 10; both index lines on land -> the lake's deepest drawn line, 50 m, becomes its index."""
+    assert ladder.sheet_ladder([10, 20, 30, 40, 50]) == (20, 10)
+    lines = [(-10.0, "HA", SQUARE), (-20.0, "HA", ON_LAND), (-30.0, "HA", SQUARE), (-40.0, "HA", ON_LAND),
+             (-50.0, "HA", SQUARE)]
+    pieces, st = PC.place_sheet(_row(), lines, {1: box(0, 0, 100, 100)})
+    assert sorted((p["native"], p["index"], p["minzoom"]) for p in pieces) == [
+        (10.0, False, 12), (30.0, False, 12), (50.0, True, 11)]
+    assert st["wbk:1"]["index_from_deepest"] == 50.0
+    # a lake that kept an index line is left as the ladder drew it
+    kept, st2 = PC.place_sheet(_row(), [(-v, "HA", SQUARE) for v in (10.0, 20.0, 30.0, 40.0, 50.0)], {1: box(0, 0, 100, 100)})
+    assert {p["native"] for p in kept if p["index"]} == {20.0, 40.0} and st2["wbk:1"]["index_from_deepest"] is None
+
+
+def test_mutation_without_the_rule_a_clipped_lake_draws_no_numbered_line(monkeypatch):
+    monkeypatch.setattr(PC, "EVERY_DRAWN_LAKE_HAS_AN_INDEX_LINE", False)
+    lines = [(-10.0, "HA", SQUARE), (-20.0, "HA", ON_LAND), (-30.0, "HA", SQUARE), (-40.0, "HA", ON_LAND),
+             (-50.0, "HA", SQUARE)]
+    pieces, _ = PC.place_sheet(_row(), lines, {1: box(0, 0, 100, 100)})
+    assert pieces and not any(p["index"] for p in pieces)
+
+
+def test_a_two_lake_sheet_numbers_each_lake_on_its_own_lines():
+    """The index lines of a two-lake sheet can all lie in one lake: the other numbers its own deepest line."""
+    rows = _row(lakes=(("wbk:1", 1), ("wbk:2", 2)))
+    far = [(1010, 1010), (1090, 1010), (1090, 1090), (1010, 1090), (1010, 1010)]       # in lake 2
+    lines = [(-20.0, "HA", SQUARE), (-40.0, "HA", SQUARE), (-10.0, "HA", far), (-30.0, "HA", far), (-50.0, "HA", far)]
+    pieces, st = PC.place_sheet(rows, lines, {1: box(0, 0, 100, 100), 2: box(1000, 1000, 1100, 1100)})
+    idx = sorted((p["item"], p["native"]) for p in pieces if p["index"])
+    assert idx == [("wbk:1", 20.0), ("wbk:1", 40.0), ("wbk:2", 50.0)]
+    assert (st["wbk:1"]["index_from_deepest"], st["wbk:2"]["index_from_deepest"]) == (None, 50.0)
+
+
+@pytest.mark.needs_source
+def test_every_shipping_frozen_lake_draws_a_numbered_line(request):
+    """Re-review (b), on the data: every frozen sheet placed from its real zip and cut at its lakes' real FWA outlines
+    (the producer's own reader and cut, nothing written): each SHIPPING lake draws at least one index line."""
+    from pipeline.bathymetry import vectors
+    from pipeline.common.curated import SOURCE
+    from pipeline.tests import under_test
+    from pipeline.tests.conftest import GPKG_HINT, need
+    gpkg = need(request, "source", SOURCE.fwa_gpkg, GPKG_HINT)
+    need(request, "source", vectors.default_folder(), "python -m pipeline.bathymetry.fetch_vectors")
+    frozen = P.load(under_test.curated().bathymetry.placings)
+    rows = P.shipping(frozen)
+    assert rows, "no shipping frozen placings: nothing to check"
+    outlines = PC.lake_outlines(gpkg, [int(lk["wbk"].split(":")[1]) for r in rows for lk in r["lakes"]])
+    pieces, facts, _report = PC.build(frozen, read_contours=PC.read_sheet, outlines=outlines,
+                                      inputs={"placings_sha256": "under test"})
+    shipping = {lk["item"] for r in rows for lk in r["lakes"]}
+    numbered = {p["item"] for p in pieces if p["index"]}
+    assert {f["item"] for f in facts["lakes"]} == shipping
+    assert sorted(shipping - numbered) == []
