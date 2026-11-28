@@ -322,12 +322,12 @@ def test_a_mark_outside_every_page_window_is_refused_naming_it(tmp_path):
     _zip(env.dir, "00000001.zip")
     v2 = [_row("00000001", "review", refit=False)]
     page = P.Page("v2", _write_page(env, "00000001", 1e6), _page_run(env, v2), "2026-11-28T06:01:00Z",
-                  "2026-11-28T09:00:00Z")
-    marks = {"00000001": {"verdict": "right", "saved_at": "2026-11-28T10:00:00Z"}}
+                  "2026-11-28T07:00:00Z")
+    marks = {"00000001": {"verdict": "right", "saved_at": "2026-11-28T07:30:00Z"}}
     frozen, rep = _freeze(env, v2, marks=marks, pages=[page])
     assert frozen["placings"] == []
-    assert rep["held_out"]["mark_outside_page_windows"][0]["saved_at"] == "2026-11-28T10:00:00Z"
-    assert P.page_for([page], "2026-11-28T08:59:59Z") is page
+    assert rep["held_out"]["mark_outside_page_windows"][0]["saved_at"] == "2026-11-28T07:30:00Z"
+    assert P.page_for([page], "2026-11-28T06:59:59Z") is page
     assert P.page_for([page], "2026-11-28T06:00:59Z") is None and P.page_for([page], None) is None
 
 
@@ -358,6 +358,76 @@ def test_the_window_is_read_from_the_export_when_it_states_one(tmp_path):
     assert P.page_for([v2, v5], "2026-11-28T09:59:59Z") is v2 and P.page_for([v2, v5], "2026-11-28T10:00:00Z") is v5
     with pytest.raises(SystemExit, match="no single window"):
         P.page_from_spec(f"v3,{data},{refit}", export)
+
+
+def test_the_export_s_own_poses_shown_block_is_read_as_written(tmp_path):
+    """The block as the review page's export writes it (2026-11-28 02:26): one dict, `from` a time then words, `to`
+    "still shown at export time"."""
+    env = _Env(tmp_path)
+    data = _write_page(env, "00000001", 1e6)
+    refit = _page_run(env, [_row("00000001", "review", refit=False)])
+    export = {"exported_at": "2026-11-28 02:26 MST",
+              "poses_shown": {"from": "2026-11-27 23:01 MST (safe lower bound; first publish about 23:20)",
+                              "note": "the page has never shown any other pose run", "run": "v2",
+                              "to": "still shown at export time"}}
+    page = P.page_from_spec(f"v2,{data},{refit}", export)
+    assert page.still_showing and page.start == P.parse_time("2026-11-28T06:01:00Z")
+    assert page.end == P.parse_time("2026-11-28T09:26:00Z")
+    P.check_pages([page], export["exported_at"])
+    with pytest.raises(SystemExit, match="neither a time nor"):
+        P.export_windows({"poses_shown": {"run": "v2", "from": "2026-11-27 23:01 MST", "to": "soon"}})
+
+
+def test_a_mark_naming_its_pose_run_is_read_against_that_run_even_after_the_switch(tmp_path):
+    env = _Env(tmp_path)
+    _zip(env.dir, "00000001.zip")
+    v2 = [_row("00000001", "review", refit=False)]
+    page = P.Page("v2", _write_page(env, "00000001", 1e6), _page_run(env, v2), "2026-11-28T06:01:00Z",
+                  "2026-11-28T08:00:00Z")                           # the page switched to v5 at 08:00
+    after = {"verdict": "right", "saved_at": "2026-11-28T08:10:00Z", "lake_after": "wbk:1"}
+    frozen, rep = _freeze(env, v2, marks={"00000001": after}, pages=[page])
+    assert frozen["placings"] == [] and "mark_outside_page_windows" in rep["held_out"]     # no field: refused
+    frozen, rep = _freeze(env, v2, marks={"00000001": dict(after, pose_run="v2")}, pages=[page])
+    assert [r["fitter_run"]["label"] for r in frozen["placings"]] == ["v2"]
+    frozen, rep = _freeze(env, v2, marks={"00000001": dict(after, pose_run="v9")}, pages=[page])
+    assert frozen["placings"] == [] and "mark_pose_run_unknown" in rep["held_out"]
+    late = dict(after, pose_run="v2", saved_at="2026-11-28T09:00:00Z")      # after its own export (08:24Z)
+    frozen, rep = _freeze(env, v2, marks={"00000001": late}, pages=[page])
+    assert frozen["placings"] == [] and "mark_after_its_export" in rep["held_out"]
+
+
+def test_the_04_25_export_s_closed_window_and_switch_time_are_read_as_written(tmp_path):
+    """The header as the page wrote it at the v5 switch (2026-11-28 04:25): `exported_at` and `to` carry words after
+    their time, the window is closed at the switch, and `switch_time_utc` must be where it ends."""
+    env = _Env(tmp_path)
+    data = _write_page(env, "00000001", 1e6)
+    refit = _page_run(env, [_row("00000001", "review", refit=False)])
+    export = {"exported_at": "2026-11-28 04:25 MST (same 27 marks as the 02:26 export)",
+              "poses_shown": {"from": "2026-11-27 23:01 MST (safe lower bound; first publish about 23:20)",
+                              "note": "after the switch every save writes pose_run", "run": "v2",
+                              "to": "2026-11-28 04:21:21 MST (11:21:21Z): page version 15 published"},
+              "switch_time_utc": "2026-11-28T11:21:21Z"}
+    assert P.export_time(export) == "2026-11-28 04:25 MST"
+    page = P.page_from_spec(f"v2,{data},{refit}", export)
+    assert not page.still_showing and page.end == P.parse_time("2026-11-28T11:21:21Z")
+    P.check_pages([page], P.export_time(export))
+    assert P.page_for([page], "2026-11-28T11:21:20Z") is page and P.page_for([page], "2026-11-28T11:21:21Z") is None
+    with pytest.raises(SystemExit, match="switch_time_utc"):
+        P.export_windows(dict(export, switch_time_utc="2026-11-28T11:00:00Z"))
+    with pytest.raises(SystemExit, match="does not start with a time"):
+        P.export_time({"exported_at": "this morning"})
+
+
+def test_an_unknown_per_mark_field_is_refused_by_name(tmp_path):
+    env = _Env(tmp_path)
+    _zip(env.dir, "00000001.zip")
+    rows = [_row("00000001", "high")]
+    with pytest.raises(ValueError, match="00000001: confidence"):
+        _freeze(env, rows, marks={"00000001": {"verdict": "right", "confidence": "sure"}})
+    with pytest.raises(ValueError, match=r"00000001: adjust\.shear"):
+        _freeze(env, rows, marks={"00000001": {"verdict": "right_adjusted", "adjust": {"turn_deg": 0, "shear": 1}}})
+    # every field the 04:25 export carries, and pose_run, is known
+    assert P.unknown_mark_fields({"1": {k: None for k in P.MARK_FIELDS} | {"adjust": {k: 0 for k in P.ADJUST_FIELDS}}}) == []
 
 
 def test_a_wrong_mark_after_the_freeze_withdraws_the_row_and_it_never_ships(tmp_path):

@@ -1,10 +1,10 @@
 # T1267 — Depth: the vector zips into SOURCE, hash-checked; the frozen accepted placings file
 
-Status: IN PROGRESS — depth data lane of the 0.10.0 finish-up chat (branch feat/T1267-frozen-depth-placings); the freeze waits for v5 on main.
+Status: IN REVIEW — code (725b614a8, d64b8de39, ffc214880) and the freeze (c6d40d956: 322 rows from fitter v5, main 0574ac7b8, and the 04:25 marks) on their branches, in the PR lane; owner: see ## Owner
 
 | id | title | status | commits | what's left |
 |---|---|---|---|---|
-| T1267 | Depth: the vector zips into SOURCE, hash-checked; the frozen accepted placings file | IN PROGRESS | — | code + tests + units read on the branch; second review, before_pr, PR; then the freeze from the v5 refit.json once v5 is on main (the planning chat says when) |
+| T1267 | Depth: the vector zips into SOURCE, hash-checked; the frozen accepted placings file | IN REVIEW — owner: see ## Owner | 725b614a8 d64b8de39 ffc214880 c6d40d956 | PRs (code, then the freeze); owner: his look at the 3 adjustments beyond the 5 % stretch, the 5 lakes with no FWA name, the 167 unmarked review charts |
 
 Source: owner 2026-11-28, "we want the vector maps in for it" (0.10.0); his rule: nothing of a lake's depth ships without
 its placing in the frozen curated file. Which placings, his words: "every high one plus all the ones i review. in the
@@ -52,3 +52,17 @@ policy, never-rewrite, the mutation pins); the curated-path pins; the dry-run fr
 Abruzzi's saved overlap 0.88 reproduced from the v2 pose + his adjustment (0.8795).
 Depends: T1188 v5 on main (for the freeze only). Size: M. Owner: no new ask (the defaults above are the planning
 chat's to put to him).
+
+## Frozen 2026-11-28 (c6d40d956, branch feat/T1267-freeze-v5-placings)
+322 shipping rows / 322 lakes: high 253 + high_stretched 43 (fitter v5's classes, main 0574ac7b8, rerun on main's code:
+identical to the notes' v5 in every pose and class), right 21 + right_adjusted 5 (the v2 page's poses + his
+adjustments as saved; the five saved overlaps reproduced within 0.0013); metres 268, feet 54. Held out: 167 review
+unmarked, 12 not placed, 5 with no FWA name (no registry item), 2 older surveys, Albert Head Lagoon (999), Lower Frog
+(his wrong_fit). Notes: depth lane night notes 2026-11-28 `T1267/PR-NOTES.md`.
+
+## Owner
+
+- [ ] 2026-11-28 — Depth lines for 0.10.0, three looks: (A) his three adjustments beyond the fitter's 5 % stretch, applied
+  exactly as saved: Abruzzi x0.84, Green 00028901 x0.81, Fire x1.11; (B) five charts whose lakes FWA does not name, so
+  no depth ships for them: Beaver 00020301, Robinson 00163001, Sawmill 00205501, Summit 00235601, Campbell 00305501;
+  (C) the 167 review charts still unmarked on the page. Default: (A) ships as saved, (B) held out, (C) wait for his marks.

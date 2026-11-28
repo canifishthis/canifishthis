@@ -412,22 +412,73 @@ class Page:
         return Page(label, Path(data), Path(refit), start, end[len("showing@"):] if showing else end, showing)
 
 
+#: a `poses_shown` time as the marks export writes it: the time, then words ("2026-11-27 23:01 MST (safe lower bound)")
+_LEAD_TIME = re.compile(r"^\s*(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z| ?[A-Z]{3}|[+-]\d{2}:\d{2}))")
+#: the words the marks export uses for a run the page still shows when it was exported
+STILL_SHOWN = "still shown at export time"
+
+
+def export_time(export: Mapping) -> Optional[str]:
+    """The marks export's own time: `exported_at` starts with a time (words may follow, as the 04:25 export writes
+    "2026-11-28 04:25 MST (same 27 marks ...)"). None when absent; a value that does not start with a time is refused."""
+    raw = export.get("exported_at")
+    if raw is None:
+        return None
+    m = _LEAD_TIME.match(str(raw))
+    if not m:
+        raise SystemExit(f"marks export `exported_at` {raw!r}: does not start with a time")
+    return m.group(1)
+
+
+def export_windows(export: Mapping) -> List[dict]:
+    """The marks export's `poses_shown` as windows [{run, from, until | still_showing_at}]. The export writes ONE block
+    {run, from, to, note}: `from` a time followed by words, `to` a time or STILL_SHOWN (then the window ends at the
+    export's own `exported_at`). A list of such blocks is read the same way. Anything else is refused by name."""
+    raw = export.get("poses_shown")
+    blocks = [raw] if isinstance(raw, Mapping) else list(raw or [])
+    out = []
+    for w in blocks:
+        m = _LEAD_TIME.match(str(w.get("from", "")))
+        if not w.get("run") or not m:
+            raise SystemExit(f"marks export `poses_shown` {w!r}: no run, or a `from` that does not start with a time")
+        to = str(w.get("to", w.get("until", ""))).strip()
+        if to == STILL_SHOWN or w.get("still_showing_at"):
+            end = w.get("still_showing_at") or export.get("exported_at")
+            if not end:
+                raise SystemExit("marks export: a run still shown, but no `exported_at` to end its window")
+            out.append({"run": w["run"], "from": m.group(1), "still_showing_at": end})
+            continue
+        mt = _LEAD_TIME.match(to)
+        if not mt:
+            raise SystemExit(f"marks export `poses_shown` {w!r}: `to` is neither a time nor {STILL_SHOWN!r}")
+        out.append({"run": w["run"], "from": m.group(1), "until": mt.group(1)})
+    # (2026-11-28 04:25 export) `switch_time_utc`: when the page moved to per-chart poses; a closed window must end there
+    sw = export.get("switch_time_utc")
+    if sw is not None:
+        closed = [w for w in out if "until" in w]
+        if not closed or any(parse_time(w["until"]) != parse_time(sw) for w in closed[-1:]):
+            raise SystemExit(f"marks export: `switch_time_utc` {sw!r} is not where the last closed `poses_shown` "
+                             f"window ends ({[w.get('until') for w in closed]})")
+    return out
+
+
 def page_from_spec(spec: str, export: Mapping) -> Page:
-    """A `--page` spec; with three parts its window comes from the marks export's `poses_shown` row for that run
-    ({run, from, until} or {run, from, still_showing_at}); with neither, refused."""
+    """A `--page` spec; with three parts its window comes from the marks export's `poses_shown` (`export_windows`);
+    with neither, refused."""
     parts = spec.split(",")
     if len(parts) == 5:
         return Page.parse(spec)
     if len(parts) != 3:
         raise SystemExit(f"--page {spec}: LABEL,PAGE_DATA_DIR,REFIT_JSON[,FROM_TIME,UNTIL_TIME|showing@TIME]")
     label = parts[0]
-    rows = [r for r in export.get("poses_shown") or [] if r.get("run") == label]
+    rows = [r for r in export_windows(export) if r["run"] == label]
     if len(rows) != 1:
         raise SystemExit(f"--page {spec}: the marks export states no single window for run {label} "
                          "(`poses_shown`); give FROM_TIME,UNTIL_TIME|showing@TIME")
     w = rows[0]
     if w.get("still_showing_at"):
-        return Page(label, Path(parts[1]), Path(parts[2]), w["from"], w["still_showing_at"], True)
+        end = export_time({"exported_at": w["still_showing_at"]})
+        return Page(label, Path(parts[1]), Path(parts[2]), w["from"], end, True)
     return Page(label, Path(parts[1]), Path(parts[2]), w["from"], w["until"])
 
 
@@ -460,6 +511,51 @@ def page_for(pages: Sequence[Page], saved_at: Optional[str]) -> Optional[Page]:
     return hits[0] if len(hits) == 1 else None
 
 
+#: THE PER-MARK FIELD (owner rule from the page's switch to v5, 2026-11-28): a chart he has marked keeps being shown on
+#: the pose it was marked on, so from the switch on the run a mark judged is PER CHART. The export names it on each mark:
+#: `"pose_run": "<run label>"` (a `--page` label: "v2", "v5"). A mark that carries it is read against that run's page
+#: (its window is not asked: a v2 chart may be re-marked after the switch); one that does not is placed by the page
+#: windows. Any other value is refused by name.
+POSE_RUN = "pose_run"
+#: EVERY field a mark may carry (the 2026-11-28 04:25 export's, plus POSE_RUN), and every field of its `adjust`: a mark
+#: is the owner's decision, so a field the freeze does not know is REFUSED by name, never ignored (header fields of the
+#: export other than those read are not his decisions and stay unread)
+MARK_FIELDS = frozenset({"verdict", "note", "saved_at", "chart_title", "lake_after", "adjusted", "adjust", POSE_RUN})
+ADJUST_FIELDS = frozenset({"turn_deg", "scale", "mirror", "dx_m", "dy_m", "on_lake", "overlap", "turn_total_deg",
+                           "scale_total_pct"})
+
+
+def unknown_mark_fields(marks: Mapping[str, Mapping]) -> List[str]:
+    """`chart: field` for every field a mark (or its adjust) carries that the freeze does not know."""
+    out = []
+    for cid, m in sorted(marks.items()):
+        out += [f"{cid}: {k}" for k in sorted(set(m) - MARK_FIELDS)]
+        a = m.get("adjust")
+        if a is not None:
+            if not isinstance(a, Mapping):
+                out.append(f"{cid}: adjust is {type(a).__name__}")
+            else:
+                out += [f"{cid}: adjust.{k}" for k in sorted(set(a) - ADJUST_FIELDS)]
+    return out
+
+
+def page_of_mark(pages: Sequence[Page], m: Mapping, exported_at: Optional[str]):
+    """The page a mark judged, or the reason it cannot be told (a str): its `pose_run` names a `--page`, else the one
+    window that holds its `saved_at`. A mark saved after the export it came in is refused."""
+    if m.get("saved_at") and exported_at:
+        try:
+            if parse_time(m["saved_at"]) > parse_time(exported_at):
+                return "mark_after_its_export"
+        except ValueError:
+            return "mark_time_unreadable"
+    if POSE_RUN in m:
+        run = m[POSE_RUN]
+        hits = [p for p in pages if isinstance(run, str) and p.label == run]
+        return hits[0] if len(hits) == 1 else "mark_pose_run_unknown"
+    page = page_for(pages, m.get("saved_at"))
+    return page if page is not None else "mark_outside_page_windows"
+
+
 def _rows_by_sheet(rows: Sequence[Mapping]) -> Dict[str, Mapping]:
     """sheet file number -> its one placeable row (a duplicate coverage of the same zip is never a sheet)."""
     by: Dict[str, List[Mapping]] = defaultdict(list)
@@ -478,7 +574,8 @@ def _rows_by_sheet(rows: Sequence[Mapping]) -> Dict[str, Mapping]:
 def freeze(frozen: dict, *, run_rows: Sequence[Mapping], run_label: str, run_sha256: str,
            marks: Mapping[str, Mapping], pages: Sequence[Page], units: Mapping[str, dict],
            sheets_meta: Mapping[str, Mapping], items: Mapping[str, List[str]], titles: Mapping[str, List[str]],
-           zip_of, today: str, by: str, marks_exported_at: Optional[str] = None) -> dict:
+           zip_of, today: str, by: str, marks_exported_at: Optional[str] = None,
+           run_commit: Optional[str] = None) -> dict:
     """Append every newly accepted sheet to `frozen` (in place). Returns the report: added, held out by reason, the
     rows WITHDRAWN, the run-of-record disagreements and the rerun disagreements.
 
@@ -487,6 +584,10 @@ def freeze(frozen: dict, *, run_rows: Sequence[Mapping], run_label: str, run_sha
     rerun; (b) a newer survey of its lake accepted later (`SURVEYS_PER_LAKE`). A withdrawn row comes back only as a
     new decision: a `right` mark saved after the mark that withdrew it, under the pose rules of that freeze."""
     check_pages(pages, marks_exported_at)
+    bad = unknown_mark_fields(marks)
+    if bad:
+        raise ValueError("marks export: per-mark field(s) the freeze does not know (a mark is the owner's decision, so "
+                         "nothing in it is ignored): " + "; ".join(bad))
     run = _rows_by_sheet(run_rows)
     have = {r["sheet"]: r for r in frozen["placings"]}
     held: Dict[str, List[dict]] = defaultdict(list)
@@ -538,11 +639,12 @@ def freeze(frozen: dict, *, run_rows: Sequence[Mapping], run_label: str, run_sha
         # --- the base pose: the run of record's, or (a mark) the page's he saw
         adjust_rec = None
         if verdict:
-            page = page_for(pages, m.get("saved_at"))
-            if page is None:
-                hold("mark_outside_page_windows", sheet, saved_at=m.get("saved_at"),
+            got = page_of_mark(pages, m, marks_exported_at)
+            if isinstance(got, str):
+                hold(got, sheet, saved_at=m.get("saved_at"), pose_run=m.get(POSE_RUN),
                      windows=[p.window() for p in pages])
                 continue
+            page = got
             prow = _rows_by_sheet(page.rows).get(sheet)
             if prow is None or prow.get("state") != "fitted":
                 hold("mark_on_unplaced_sheet", sheet, page=page.label)
@@ -636,7 +738,9 @@ def freeze(frozen: dict, *, run_rows: Sequence[Mapping], run_label: str, run_sha
             "units": unit, "units_evidence": ev,
             "accepted_as": accepted_as,
             "fitter_run": {"label": base_label, "sha256": base_sha, "class": class_of_run_row(base_row),
-                           "confidence": base_row.get("confidence")},
+                           "confidence": base_row.get("confidence"),
+                           # the code that made the run of record (a page's run is named by its label and sha256)
+                           "commit": run_commit if base_label == run_label else None},
             "adjust": adjust_rec,
             "mark": mark_rec,
             "status": "accepted",
@@ -751,6 +855,7 @@ def main(argv=None) -> int:
     g.add_argument("--check", action="store_true", help="prove every row's zip and shape")
     ap.add_argument("--run", type=Path, help="the run of record's refit.json (default GENERATED.bathymetry/refit.json)")
     ap.add_argument("--run-label", help="the run of record's name (e.g. v5)")
+    ap.add_argument("--run-commit", help="the commit whose fitter made the run of record (recorded on its rows)")
     ap.add_argument("--marks", type=Path, help="the owner's marks export (marks-<date>.json)")
     ap.add_argument("--page", action="append", default=[],
                     help="LABEL,PAGE_DATA_DIR,REFIT_JSON[,FROM_TIME,UNTIL_TIME|showing@TIME]: a run the review page "
@@ -790,8 +895,8 @@ def main(argv=None) -> int:
                     titles=run_doc.get("titles", {}),
                     zip_of=lambda n: (vectors.zip_path(n), vectors.zip_sha256(n)),
                     today=a.today or dt.date.today().isoformat(), by=a.by,
-                    marks_exported_at=export.get("exported_at"))
-    report["run"] = {"label": a.run_label, "path": str(run_path), "sha256": file_sha256(run_path)}
+                    marks_exported_at=export_time(export), run_commit=a.run_commit)
+    report["run"] = {"label": a.run_label, "commit": a.run_commit, "path": str(run_path), "sha256": file_sha256(run_path)}
     report["marks"] = str(a.marks) if a.marks else None
     report["pages"] = [dict(p.window(), refit=str(p.refit), sha256=p.sha256) for p in pages]
     out = GENERATED.mkdir("bathymetry") / "placings_report.json"
