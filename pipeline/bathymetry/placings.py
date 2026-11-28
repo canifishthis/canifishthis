@@ -491,6 +491,31 @@ def page_for(pages: Sequence[Page], saved_at: Optional[str]) -> Optional[Page]:
     return hits[0] if len(hits) == 1 else None
 
 
+#: THE PER-MARK FIELD (owner rule from the page's switch to v5, 2026-11-28): a chart he has marked keeps being shown on
+#: the pose it was marked on, so from the switch on the run a mark judged is PER CHART. The export names it on each mark:
+#: `"pose_run": "<run label>"` (a `--page` label: "v2", "v5"). A mark that carries it is read against that run's page
+#: (its window is not asked: a v2 chart may be re-marked after the switch); one that does not is placed by the page
+#: windows. Any other value is refused by name.
+POSE_RUN = "pose_run"
+
+
+def page_of_mark(pages: Sequence[Page], m: Mapping, exported_at: Optional[str]):
+    """The page a mark judged, or the reason it cannot be told (a str): its `pose_run` names a `--page`, else the one
+    window that holds its `saved_at`. A mark saved after the export it came in is refused."""
+    if m.get("saved_at") and exported_at:
+        try:
+            if parse_time(m["saved_at"]) > parse_time(exported_at):
+                return "mark_after_its_export"
+        except ValueError:
+            return "mark_time_unreadable"
+    if POSE_RUN in m:
+        run = m[POSE_RUN]
+        hits = [p for p in pages if isinstance(run, str) and p.label == run]
+        return hits[0] if len(hits) == 1 else "mark_pose_run_unknown"
+    page = page_for(pages, m.get("saved_at"))
+    return page if page is not None else "mark_outside_page_windows"
+
+
 def _rows_by_sheet(rows: Sequence[Mapping]) -> Dict[str, Mapping]:
     """sheet file number -> its one placeable row (a duplicate coverage of the same zip is never a sheet)."""
     by: Dict[str, List[Mapping]] = defaultdict(list)
@@ -569,11 +594,12 @@ def freeze(frozen: dict, *, run_rows: Sequence[Mapping], run_label: str, run_sha
         # --- the base pose: the run of record's, or (a mark) the page's he saw
         adjust_rec = None
         if verdict:
-            page = page_for(pages, m.get("saved_at"))
-            if page is None:
-                hold("mark_outside_page_windows", sheet, saved_at=m.get("saved_at"),
+            got = page_of_mark(pages, m, marks_exported_at)
+            if isinstance(got, str):
+                hold(got, sheet, saved_at=m.get("saved_at"), pose_run=m.get(POSE_RUN),
                      windows=[p.window() for p in pages])
                 continue
+            page = got
             prow = _rows_by_sheet(page.rows).get(sheet)
             if prow is None or prow.get("state") != "fitted":
                 hold("mark_on_unplaced_sheet", sheet, page=page.label)

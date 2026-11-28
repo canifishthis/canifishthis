@@ -322,12 +322,12 @@ def test_a_mark_outside_every_page_window_is_refused_naming_it(tmp_path):
     _zip(env.dir, "00000001.zip")
     v2 = [_row("00000001", "review", refit=False)]
     page = P.Page("v2", _write_page(env, "00000001", 1e6), _page_run(env, v2), "2026-11-28T06:01:00Z",
-                  "2026-11-28T09:00:00Z")
-    marks = {"00000001": {"verdict": "right", "saved_at": "2026-11-28T10:00:00Z"}}
+                  "2026-11-28T07:00:00Z")
+    marks = {"00000001": {"verdict": "right", "saved_at": "2026-11-28T07:30:00Z"}}
     frozen, rep = _freeze(env, v2, marks=marks, pages=[page])
     assert frozen["placings"] == []
-    assert rep["held_out"]["mark_outside_page_windows"][0]["saved_at"] == "2026-11-28T10:00:00Z"
-    assert P.page_for([page], "2026-11-28T08:59:59Z") is page
+    assert rep["held_out"]["mark_outside_page_windows"][0]["saved_at"] == "2026-11-28T07:30:00Z"
+    assert P.page_for([page], "2026-11-28T06:59:59Z") is page
     assert P.page_for([page], "2026-11-28T06:00:59Z") is None and P.page_for([page], None) is None
 
 
@@ -376,6 +376,24 @@ def test_the_export_s_own_poses_shown_block_is_read_as_written(tmp_path):
     P.check_pages([page], export["exported_at"])
     with pytest.raises(SystemExit, match="neither a time nor"):
         P.export_windows({"poses_shown": {"run": "v2", "from": "2026-11-27 23:01 MST", "to": "soon"}})
+
+
+def test_a_mark_naming_its_pose_run_is_read_against_that_run_even_after_the_switch(tmp_path):
+    env = _Env(tmp_path)
+    _zip(env.dir, "00000001.zip")
+    v2 = [_row("00000001", "review", refit=False)]
+    page = P.Page("v2", _write_page(env, "00000001", 1e6), _page_run(env, v2), "2026-11-28T06:01:00Z",
+                  "2026-11-28T08:00:00Z")                           # the page switched to v5 at 08:00
+    after = {"verdict": "right", "saved_at": "2026-11-28T08:10:00Z", "lake_after": "wbk:1"}
+    frozen, rep = _freeze(env, v2, marks={"00000001": after}, pages=[page])
+    assert frozen["placings"] == [] and "mark_outside_page_windows" in rep["held_out"]     # no field: refused
+    frozen, rep = _freeze(env, v2, marks={"00000001": dict(after, pose_run="v2")}, pages=[page])
+    assert [r["fitter_run"]["label"] for r in frozen["placings"]] == ["v2"]
+    frozen, rep = _freeze(env, v2, marks={"00000001": dict(after, pose_run="v9")}, pages=[page])
+    assert frozen["placings"] == [] and "mark_pose_run_unknown" in rep["held_out"]
+    late = dict(after, pose_run="v2", saved_at="2026-11-28T09:00:00Z")      # after its own export (08:24Z)
+    frozen, rep = _freeze(env, v2, marks={"00000001": late}, pages=[page])
+    assert frozen["placings"] == [] and "mark_after_its_export" in rep["held_out"]
 
 
 def test_a_wrong_mark_after_the_freeze_withdraws_the_row_and_it_never_ships(tmp_path):
