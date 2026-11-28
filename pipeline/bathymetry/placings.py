@@ -554,7 +554,8 @@ def _rows_by_sheet(rows: Sequence[Mapping]) -> Dict[str, Mapping]:
 def freeze(frozen: dict, *, run_rows: Sequence[Mapping], run_label: str, run_sha256: str,
            marks: Mapping[str, Mapping], pages: Sequence[Page], units: Mapping[str, dict],
            sheets_meta: Mapping[str, Mapping], items: Mapping[str, List[str]], titles: Mapping[str, List[str]],
-           zip_of, today: str, by: str, marks_exported_at: Optional[str] = None) -> dict:
+           zip_of, today: str, by: str, marks_exported_at: Optional[str] = None,
+           run_commit: Optional[str] = None) -> dict:
     """Append every newly accepted sheet to `frozen` (in place). Returns the report: added, held out by reason, the
     rows WITHDRAWN, the run-of-record disagreements and the rerun disagreements.
 
@@ -713,7 +714,9 @@ def freeze(frozen: dict, *, run_rows: Sequence[Mapping], run_label: str, run_sha
             "units": unit, "units_evidence": ev,
             "accepted_as": accepted_as,
             "fitter_run": {"label": base_label, "sha256": base_sha, "class": class_of_run_row(base_row),
-                           "confidence": base_row.get("confidence")},
+                           "confidence": base_row.get("confidence"),
+                           # the code that made the run of record (a page's run is named by its label and sha256)
+                           "commit": run_commit if base_label == run_label else None},
             "adjust": adjust_rec,
             "mark": mark_rec,
             "status": "accepted",
@@ -828,6 +831,7 @@ def main(argv=None) -> int:
     g.add_argument("--check", action="store_true", help="prove every row's zip and shape")
     ap.add_argument("--run", type=Path, help="the run of record's refit.json (default GENERATED.bathymetry/refit.json)")
     ap.add_argument("--run-label", help="the run of record's name (e.g. v5)")
+    ap.add_argument("--run-commit", help="the commit whose fitter made the run of record (recorded on its rows)")
     ap.add_argument("--marks", type=Path, help="the owner's marks export (marks-<date>.json)")
     ap.add_argument("--page", action="append", default=[],
                     help="LABEL,PAGE_DATA_DIR,REFIT_JSON[,FROM_TIME,UNTIL_TIME|showing@TIME]: a run the review page "
@@ -867,8 +871,8 @@ def main(argv=None) -> int:
                     titles=run_doc.get("titles", {}),
                     zip_of=lambda n: (vectors.zip_path(n), vectors.zip_sha256(n)),
                     today=a.today or dt.date.today().isoformat(), by=a.by,
-                    marks_exported_at=export_time(export))
-    report["run"] = {"label": a.run_label, "path": str(run_path), "sha256": file_sha256(run_path)}
+                    marks_exported_at=export_time(export), run_commit=a.run_commit)
+    report["run"] = {"label": a.run_label, "commit": a.run_commit, "path": str(run_path), "sha256": file_sha256(run_path)}
     report["marks"] = str(a.marks) if a.marks else None
     report["pages"] = [dict(p.window(), refit=str(p.refit), sha256=p.sha256) for p in pages]
     out = GENERATED.mkdir("bathymetry") / "placings_report.json"
