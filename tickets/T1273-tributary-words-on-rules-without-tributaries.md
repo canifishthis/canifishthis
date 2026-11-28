@@ -1,10 +1,10 @@
 # T1273 — 19 rules say "Covers X and its tributary streams" though their own line has no tributaries
 
-Status: OPEN.
+Status: IN PROGRESS — built on `fix/T1273-own-no-tributaries-reaches-the-words` (705a59bd2), measured; not merged until the owner says when; owner: see ## Owner
 
 | id | title | status | commits | what's left |
 |---|---|---|---|---|
-| T1273 | 19 rules say "Covers X and its tributary streams" though their own line has no tributaries | OPEN | — | owner: 0.10.0 or after (## Owner; 4 loosen); then the export carries a rule's own false flag, re-cut, pins |
+| T1273 | 19 rules say "Covers X and its tributary streams" though their own line has no tributaries | IN PROGRESS | 705a59bd2 | built and measured (exactly the 19 lines change, no answer); merge waits for the owner's 0.10.0-or-after |
 
 Source: lane T679-#12, 2026-11-28 (found while making the bundle carry each rule's tributary scope); measured on the
 baseline side build r-5e5e0369ce6d (origin/main a18c6168b + the T1199 fix).
@@ -62,6 +62,13 @@ releases, boat and speed rules (Goat r1, Alouette r3, Kitimat r1/r2, …).
 3. Pins: in `test_t1053_sources_words.py`, a test that goes THROUGH the bundle row and the export record (a rule with
    own `false` under a ✱ row has `fields.includes_tributaries is False` and no "Covers" sentence; MUTATION: drop the
    flag in `row.py` → red), and a built-data test on Goat River r1 and Alouette River r3.
+
+## Built (705a59bd2, 2026-11-28; option (a) of Work 1, `row.THREE_VALUED_FLAGS`)
+Measured against the baseline r-5e5e0369ce6d (same code, the fix alone): the answers differ in exactly the 19
+`display.rules[].applies` lines (`night-notes-2026-11-28-finish-up/T1273/applies-before-after.csv`), answers_diff "No
+answer changed"; verdicts.sqlite and status_index.bin byte-identical; the export's `fields` gain
+`includes_tributaries: false` on 43 rules and the guide's generated `fields_used` counts move (6); in the release only
+the `water` files and the manifest change. The mini release is unchanged (`mini_release --check` ok).
 
 ## Acceptance
 answers_diff against the release before: exactly the 19 `applies` lines change, "wording only", no answer; the two pins
