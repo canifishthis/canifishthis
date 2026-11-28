@@ -309,29 +309,45 @@ export function dayMeans(series: Record<string, any>, key = "mid"): Map<string, 
   return out;
 }
 
-export function forecastDays(runs: Runs | null | undefined, now: number, observed: number | null, rank: Rank | null): Record<string, any> | null {
-  if (!runs || !Object.keys(runs).length || rank === null) return null;
+/**
+ * change.day_picks (T1278): THE ONE PLACE A FORECAST DAY IS MADE. Day N is the Centre day N after today (the Centre's
+ * PST wall clock); its value is every fresh run's DAILY MEAN for that day (`dayMeans`) on the gauge's scale
+ * (`gaugeScale`), joined by `combineDay`. Never one hourly step: a rain pulse swings a forecast several-fold inside a
+ * day, so the step nearest the run's clock hour flipped a day's percentile from day to day. `forecastDays` and the
+ * horizons (`publish.forecastPercentiles`) both read this.
+ */
+export function dayPicks(runs: Runs | null | undefined, now: number, observed: number | null | undefined, quantity = "discharge"): [string, Array<[string[], number, boolean] | null>] {
   const first = addDays(dayOf(centreWall(now)), 1);
+  const key = quantity === "level" ? "level_mid" : "mid";
   const means = new Map<string, [Map<string, number>, number | null]>();
-  for (const model of Object.keys(runs).sort()) {
-    const run = runs[model];
+  for (const model of Object.keys(runs || {}).sort()) {
+    const run = (runs || {})[model];
     const series = (run || {}).series;
     if (!series || !Object.keys(series).length || stale(run, now)) continue;
-    means.set(model, [dayMeans(series), gaugeScale(model, run!, now, observed)]);
+    means.set(model, [dayMeans(series, key), gaugeScale(model, run!, now, observed, quantity)]);
   }
-  const ps: Array<number | null> = [];
-  const ms: Array<string | null> = [];
-  const low: number[] = [];
+  const picks: Array<[string[], number, boolean] | null> = [];
   for (let k = 0; k < AHEAD_DAYS; k++) {
     const d = addDays(first, k);
     const vals: Record<string, number | null> = {};
     for (const [m, [v, s]] of means) vals[m] = v.has(d) && s !== null ? v.get(d)! * s : null;
-    const got = combineDay(vals);
-    const p = got ? rank(got[1], d) : null;
+    picks.push(combineDay(vals));
+  }
+  return [first, picks];
+}
+
+export function forecastDays(runs: Runs | null | undefined, now: number, observed: number | null, rank: Rank | null): Record<string, any> | null {
+  if (!runs || !Object.keys(runs).length || rank === null) return null;
+  const [first, picks] = dayPicks(runs, now, observed);
+  const ps: Array<number | null> = [];
+  const ms: Array<string | null> = [];
+  const low: number[] = [];
+  picks.forEach((got, k) => {
+    const p = got ? rank(got[1], addDays(first, k)) : null;
     ps.push(p !== null ? pyRound(p, 4) : null);
     ms.push(got && p !== null ? modelName(got[0]) : null);
     if (got && p !== null && got[2]) low.push(k);
-  }
+  });
   if (ps.every((p) => p === null)) return null;
   return { from: first, discharge: ps, model: ms, ...(low.length ? { lowWater: low } : {}) };
 }

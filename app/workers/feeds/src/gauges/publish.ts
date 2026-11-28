@@ -6,7 +6,7 @@
 //           roster.json (the realtime roster, when `deps.roster` is not passed)
 import { contentHash, readStored, rev, type Fetch, type Meter, type Store } from "../io";
 import { sendDueChecked } from "../notify";
-import { combineDay, forecastDays, gaugeScale, modelName, stale, stationChange, type Rank } from "./change";
+import { dayPicks, forecastDays, modelName, stationChange, type Rank } from "./change";
 import { ATTRIBUTION, fetchSummary, timeout, withSeries, type Runs, type Summary } from "./forecast";
 import { listedStations, rosterDrift, STATION_LIST, stationsToAsk, type RosterDrift, type RosterRow } from "./liveness";
 import { dictRows, pool, pyFloat, pyRound, pyRoundInt, pySum, csvRows, truthy, urlencode } from "./py";
@@ -292,22 +292,16 @@ function stepDayOf(series: Record<string, any>, at: unknown): string | null {
 export function forecastPercentiles(runs: Runs | null | undefined, envelopes: Record<string, any> | null | undefined, now: number, observed: Record<string, Num> | null): Record<string, any> {
   if (!runs || !Object.keys(runs).length || !envelopes || !Object.keys(envelopes).length) return {};
   const out: Record<string, any> = {};
+  // THE DAY'S MEAN, NOT ONE STEP (T1278): day N is `dayPicks`' Centre day N after today, the same value as the ranked
+  // days (`forecastDays`), ranked against the envelope at noon UTC of that day (the publisher's `rankDay`).
+  const picks = { discharge: dayPicks(runs, now, (observed || {}).discharge ?? null, "discharge"), level: dayPicks(runs, now, (observed || {}).level ?? null, "level") };
   for (const days of HORIZONS) {
-    const when = now + days * DAY_MS;
     const got: Record<string, number> = {};
     const by: Record<string, string> = {};
-    for (const q of ["discharge", "level"]) {
-      const values: Record<string, Num> = {};
-      for (const model of Object.keys(runs).sort()) {
-        const run = runs[model];
-        const series = (run || {}).series;
-        if (!series || !Object.keys(series).length || stale(run, now)) continue;
-        const s = gaugeScale(model, run!, now, (observed || {})[q] ?? null, q);
-        const v = forecastAt(series, when, q);
-        values[model] = v === null || s === null ? null : v * s;
-      }
-      const pick = combineDay(values);
-      const p = pick !== null ? percentileOf(pick[1], bandFor(envelopes[q], when)) : null;
+    for (const q of ["discharge", "level"] as const) {
+      const [first, list] = picks[q];
+      const pick = list[days - 1] ?? null;
+      const p = pick !== null ? percentileOf(pick[1], bandFor(envelopes[q], dayMs(addDays(first, days - 1))! + 12 * HOUR)) : null;
       if (pick !== null && p !== null) {
         by[q] = modelName(pick[0]);
         got[q] = p;

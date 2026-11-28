@@ -4,7 +4,7 @@
     the CLEVER forecast (it could also use multiple forecasts) … this will look at the daily forecast, not just the 1,
     3, 5, 10, so that we don't miss day-long spikes."
 
-WHY THE SAMPLED HORIZONS ARE NOT ENOUGH. `forecast_percentiles` reads one model step at +1, +3, +5 and +10 days. On the
+WHY THE SAMPLED HORIZONS WERE NOT ENOUGH (history: the horizons then read one model step; since T1278 each is the day's mean). On the
 feed of 2026-10-22, 33 of the 72 CLEVER runs whose peak is at least twice today's flow peaked on a day none of those four
 samples, and 08MH090's 26-fold rise on day six was invisible to the summary layer AND to +5. So this reads every day of
 the run: the day's highest and lowest step (an hourly model's day has 24; a daily model's, one).
@@ -349,8 +349,9 @@ def change_source(runs: dict[str, tuple[float, Days]]) -> dict | None:
 # ------------------------------------------------------------------------------- one forecast day, ranked ----
 #
 # T171 (owner 2026-10-23: "sometimes it has gaps and says weather only despite gauge forecast on both sides"). The
-# horizons (`publish.forecast_percentiles`) rank one step at +1/+3/+5/+10; "Like your visit?" needs EVERY day, so the
-# feed also ranks each forecast day's DAILY MEAN (`forecast_days`). Both ask ONE rule for which model answers a day.
+# horizons (`publish.forecast_percentiles`) once ranked one step at +1/+3/+5/+10; "Like your visit?" needs EVERY day, so the
+# feed also ranks each forecast day's DAILY MEAN (`forecast_days`). Since T1278 both are `day_picks`: ONE rule for which
+# model answers a day and one value for it, the day's mean.
 
 # A MODEL WHOSE NUMBERS ARE NOT ON THE GAUGE'S SCALE. COFFEE publishes instantaneous PEAKS (each day's flow times the
 # station's historical instantaneous-to-daily peak ratio, Luo 2018 §3.3): on the 2026-10-23 feed its day 0 sat a median
@@ -436,34 +437,51 @@ def day_means(series: dict, key: str = "mid") -> dict[str, float]:
     return out
 
 
+def day_picks(runs: dict | None, now: datetime, observed: float | None,
+              quantity: str = "discharge") -> tuple[date, list[tuple[tuple[str, ...], float, bool] | None]]:
+    """EVERY FORECAST DAY'S VALUE, ONE QUANTITY (T1278): `(first day, [combine_day's pick or None] * AHEAD_DAYS)`.
+
+    THE ONE PLACE A FORECAST DAY IS MADE. Day N is the Centre day N after today (the Centre's PST wall clock,
+    `CENTRE_ZONE`; the day the app labels). Its value is every fresh run's DAILY MEAN for that day (`day_means`: an
+    hourly run's steps that day, a daily model's one step) times `gauge_scale` (COFFEE onto the gauge's scale by
+    `observed` over its own today), joined by `combine_day`. Never one hourly step: a forecast with a rain pulse
+    swings several-fold inside a day, so the step nearest the clock hour of the run flipped a day's percentile
+    day to day (T1278). The ranked days (`forecast_days`) and the horizons (`publish.forecast_percentiles`) both
+    read this, so a horizon and the strip's day cannot disagree. A stale run never speaks (`stale`).
+    """
+    first = now.astimezone(CENTRE_ZONE).date() + timedelta(days=1)
+    key = "level_mid" if quantity == "level" else "mid"
+    means: dict[str, tuple[dict[str, float], float | None]] = {}
+    for model, run in sorted((runs or {}).items()):
+        series = (run or {}).get("series")
+        if not series or stale(run, now):
+            continue
+        means[model] = (day_means(series, key), gauge_scale(model, run, now, observed, quantity))
+    picks = []
+    for k in range(AHEAD_DAYS):
+        d = (first + timedelta(days=k)).isoformat()
+        picks.append(combine_day({m: (v[d] * s if d in v and s is not None else None) for m, (v, s) in means.items()}))
+    return first, picks
+
+
 def forecast_days(runs: dict | None, now: datetime, observed: float | None, rank: Rank | None) -> dict | None:
     """EVERY FORECAST DAY'S DISCHARGE PERCENTILE (T171): `{"from": first day, "discharge": [...], "model": [...],
     "lowWater": [i, ...]}` for the AHEAD_DAYS Centre days after today, or None when no day can be ranked.
 
-    Each day is every fresh run's DAILY MEAN (`day_means`; a daily model's one step) on the gauge's scale
-    (`gauge_scale`), joined by `combine_day` (T177: CLEVER and COFFEE together where both reach the day — `model` then
-    reads `CLEVER+COFFEE`, `model_name`), then ranked by `rank(flow, day)` — the station's discharge envelope for THAT
-    day, the same one the horizons and the Change rank against. A day no model can rank is null in both
-    lists (the app's "weather only", said). `lowWater` lists the indexes of the days the low-water model made — absent
-    when none. A stale run never speaks (`stale`). Discharge only: "Like your visit?" compares flow, never a level.
+    Each day is `day_picks`' (every fresh run's DAILY MEAN on the gauge's scale, joined by `combine_day`: T177, CLEVER
+    and COFFEE together where both reach the day, `model` then reading `CLEVER+COFFEE`), ranked by `rank(flow, day)`
+    — the station's discharge envelope for THAT day, the same one the horizons and the Change rank against. A day no
+    model can rank is null in both lists (the app's "weather only", said). `lowWater` lists the indexes of the days
+    the low-water model made — absent when none. Discharge only: "Like your visit?" compares flow, never a level.
     """
     if not runs or rank is None:
         return None
-    first = now.astimezone(CENTRE_ZONE).date() + timedelta(days=1)
-    means: dict[str, tuple[dict[str, float], float | None]] = {}
-    for model, run in sorted(runs.items()):
-        series = (run or {}).get("series")
-        if not series or stale(run, now):
-            continue
-        means[model] = (day_means(series), gauge_scale(model, run, now, observed))
+    first, picks = day_picks(runs, now, observed)
     ps: list[float | None] = []
     ms: list[str | None] = []
     low: list[int] = []
-    for k in range(AHEAD_DAYS):
-        d = first + timedelta(days=k)
-        key = d.isoformat()
-        got = combine_day({m: (v[key] * s if key in v and s is not None else None) for m, (v, s) in means.items()})
-        p = rank(got[1], d) if got else None
+    for k, got in enumerate(picks):
+        p = rank(got[1], first + timedelta(days=k)) if got else None
         ps.append(round(p, 4) if p is not None else None)
         ms.append(model_name(got[0]) if got and p is not None else None)
         if got and p is not None and got[2]:

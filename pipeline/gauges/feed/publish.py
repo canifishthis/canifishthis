@@ -55,7 +55,7 @@ from pathlib import Path
 from pipeline.common.curated import CURATED, REPO_ROOT, SOURCE
 from pipeline.common.feed_formats import FEED_FORMATS, FEED_MIN_APP
 from pipeline.gauges.feed.climatology import PCTILES
-from pipeline.gauges.feed.change import combine_day as _combine_day, forecast_days, gauge_scale as _gauge_scale
+from pipeline.gauges.feed.change import day_picks, forecast_days
 from pipeline.gauges.feed.change import model_name as _model_name
 from pipeline.gauges.feed.change import stale as _stale_run, station_change
 from pipeline.gauges.feed import skill as _skill
@@ -502,25 +502,18 @@ def forecast_percentiles(runs: dict | None, envelopes: dict | None,
     if not runs or not envelopes:
         return {}
     out: dict[str, dict] = {}
+    # THE DAY'S MEAN, NOT ONE STEP (T1278): day N is `change.day_picks`' Centre day N after today, the same value as the
+    # ranked days (`forecast_days`), ranked against the envelope at noon UTC of that day (the publisher's `rank_day`).
+    picks = {q: day_picks(runs, now, (observed or {}).get(q), q) for q in ("discharge", "level")}
     for days in HORIZONS:
-        when = now + timedelta(days=days)
         got: dict = {}
         by: dict[str, str] = {}
         for q in ("discharge", "level"):
-            values: dict[str, float | None] = {}
-            for model, run in sorted(runs.items()):
-                series = (run or {}).get("series")
-                # A RUN PAST `change.due_by` IS NOT TODAY'S FORECAST (T52): the feed carried ELF runs from 09-24 and
-                # 10-14 that still answered +3/+5/+10 at 08CG001, a week after the Centre had stopped issuing them.
-                if not series or _stale_run(run, now):
-                    continue
-                # a peak model (COFFEE) on the gauge's scale first; None: it cannot be ranked (`change.gauge_scale`)
-                s = _gauge_scale(model, run, now, (observed or {}).get(q), q)
-                v = forecast_at(series, when, q)
-                values[model] = None if v is None or s is None else v * s
-            # WHICH MODELS ANSWER THIS DAY, for THIS quantity, and how they join: `change.combine_day` (T177)
-            pick = _combine_day(values)
-            p = percentile_of(pick[1], band_for(envelopes.get(q), when)) if pick is not None else None
+            first, day_list = picks[q]
+            pick = day_list[days - 1]
+            d = first + timedelta(days=days - 1)
+            p = (percentile_of(pick[1], band_for(envelopes.get(q), datetime(d.year, d.month, d.day, 12, tzinfo=timezone.utc)))
+                 if pick is not None else None)
             if pick is not None and p is not None:
                 by[q], got[q] = _model_name(pick[0]), p
         if got:
