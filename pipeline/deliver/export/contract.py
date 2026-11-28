@@ -26,7 +26,7 @@ GUIDE_NAME = "ui-rules-guide.json"
 #: `rule.unresolved` is why a rule could not be placed, and `rule.exempts` is what a rule lifts,
 #: resolved to the entry each lift reaches — it left `conditions` for a column of its own, so a
 #: bundle without the column is one whose lifts this export would silently drop.
-REQUIRED_COLUMNS = {"entry": ("matched", "see", "authority"),
+REQUIRED_COLUMNS = {"entry": ("matched", "see", "authority", "includes_tributaries"),
                     "rule": ("unresolved", "exempts", "undrawn_part", "parts"),
                     **{t: ("parts",) for t in ("designation", "not_classified", "requirement",
                                               "licence_terms", "exemption", "alternative")},
@@ -46,7 +46,10 @@ REQUIRED_COLUMNS = {"entry": ("matched", "see", "authority"),
                     "split": ("split_id", "name", "kind", "at", "official_name",
                               "same_place_as", "lake_id", "confidence"),
                     "split_near": ("split_id", "token", "m"),
-                    "item_alias": ("alias", "item_id")}
+                    "item_alias": ("alias", "item_id"),
+                    # T679 #12: each rule's own tributary scope (`closures.tributary_scope_sets`)
+                    "rule_tributary": ("entry_id", "rule_id", "includes_tributaries", "tributaries_only",
+                                       "tributary_excludes")}
 
 #: FIELD NAMES THE MODEL NO LONGER HAS. None may appear as a key anywhere in the output.
 RETIRED_ANYWHERE = frozenset({
@@ -84,4 +87,5 @@ def _need(db: sqlite3.Connection) -> None:
             f"bound), `rule.exempts` (each lift resolved to its entry, JSON), `item.part_of`, "
             f"the `outside_bc` table (the sections B.C. does not govern), `section_touch` "
             f"(which sections of a water border each other), and `section_span` / `span_end` / "
-            f"`split` (where each section lies along its water, what ends it, the cuts by name).")
+            f"`split` (where each section lies along its water, what ends it, the cuts by name), and "
+            f"`rule_tributary` (each rule's own tributary scope, T679 #12).")

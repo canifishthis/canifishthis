@@ -324,6 +324,24 @@ CREATE TABLE rule (entry_id TEXT NOT NULL, rule_id TEXT NOT NULL,
                           OR (type = 'retention_limit' AND take = 0 AND may_target = 0)),
                    PRIMARY KEY (entry_id, rule_id)) WITHOUT ROWID;
 
+-- (T679 #12, owner 2026-11-28 "derive from data but in 0.10") A RULE'S OWN TRIBUTARY SCOPE, as the catalogue states it:
+-- one row per rule that states any of it, none for a rule that says nothing. `includes_tributaries` is THREE-VALUED
+-- (AGENTS 9): 1 / 0 the rule's own flag, NULL inherits its row's (`entry.includes_tributaries`). `rule.conditions`
+-- cannot say it: it drops every false flag, so an explicit "not its tributaries" (Pitt River r2 under a ✱ row) read
+-- there as the row's yes. `tributaries_only` 1 walks the tributaries without the named water. `tributary_excludes`
+-- (JSON list of extents, NULL = none) the waters the walk must not enter, each `walk_past: true` when the walk goes
+-- on above it (the Squamish's excepted rivers, RULINGS T5). The reach builder has already applied all three; they
+-- are here so the export can say what they mean (`export.closures.tributary_scope_sets`) without an id list in code.
+-- No reader of the answer reads this table, and nothing in it leaves the pipeline.
+CREATE TABLE rule_tributary (entry_id TEXT NOT NULL, rule_id TEXT NOT NULL,
+                             includes_tributaries INTEGER CHECK (includes_tributaries IN (0, 1)),
+                             tributaries_only INTEGER NOT NULL DEFAULT 0 CHECK (tributaries_only IN (0, 1)),
+                             tributary_excludes TEXT,
+                             CHECK (includes_tributaries IS NOT NULL OR tributaries_only = 1
+                                    OR tributary_excludes IS NOT NULL),
+                             PRIMARY KEY (entry_id, rule_id),
+                             FOREIGN KEY (entry_id, rule_id) REFERENCES rule (entry_id, rule_id)) WITHOUT ROWID;
+
 -- THE RULE ORDER EVERY STAGE USES (DATAFLOW P2): a rule's index in the sorted
 -- `entry_id::rule_id` list — the export's `rules` array and every `RuleIx` of the verdicts and
 -- the answers. Written once (`derived.write`); `meta.rule_ids_sha256` names the order.
