@@ -23,8 +23,11 @@ T1268; the lake card facts and `lakes/1` are T1269.
    `high_stretched`, plus every chart marked `right` / `right_adjusted`; never one marked wrong_lake / wrong_fit /
    unsure. A marked row takes the pose the review page SHOWED (its run, kept in the row), plus his adjustment exactly
    as saved (`compose`: the page's own maths, `review-page/v3/script.js` `mapM`), proved by recomputing the overlap the
-   mark saved (`OVERLAP_TOLERANCE`); the run of record's pose for it is reported, never applied. An accepted row is
-   never rewritten; a rerun reports what it would change.
+   mark saved (`OVERLAP_TOLERANCE`); the run of record's pose for it is reported, never applied. Every `--page` states
+   its window (from, until or "still showing at" a time the marks export may not pass; or the export's `poses_shown`);
+   a mark saved in no window is refused, named. An accepted row is never rewritten; a rerun reports what it would
+   change. A row is WITHDRAWN (kept as a record, out of the shipping view `placings.shipping()`) by his later wrong /
+   unsure mark or by a newer survey of its lake accepted later; only his later `right` brings it back, as a new row.
 3. **Units (D2).** `CURATED.bathymetry.sheet_units` (`bathy-sheet-units/1`): the 63 trusted sheets whose vector file
    states no unit, read off their printed charts (title block "DEPTHS IN ..." 7, the statistics block's MAX. / MEAN
    DEPTH with its unit 55, the contour labels' foot marks 1): 53 feet, 10 metres. Each row keeps the words, where, the
@@ -39,7 +42,9 @@ T1268; the lake card facts and `lakes/1` are T1269.
   prints 0.5 and 1.5 m lines; the arcs cannot prove a no-data code, so the sheet is held out.
 - D9 `SURVEYS_PER_LAKE = "newest"`: Murphy Lake keeps 1987 (00191301), drops 1971 (00191501); Carp Lake keeps 1977
   (00287001), drops 1971 (00287101).
-- A lake with no single registry item is held out (5 unnamed lakes today).
+- Held out, for the owner: a lake with no single registry item. Today 5 charts, named on the chart but with no FWA
+  name, hence no registry item: Beaver 00020301 (high_stretched), Robinson 00163001, Sawmill 00205501, Summit
+  00235601, Campbell 00305501 (high).
 
 ## Acceptance
 `pipeline/tests/test_bathymetry_t1267.py` (synthetic: the hash guard, the page's maths on a synthetic page, the

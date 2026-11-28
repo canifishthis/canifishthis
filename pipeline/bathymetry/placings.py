@@ -9,12 +9,15 @@ and NEVER when he marked it `wrong_lake`, `wrong_fit` or `unsure` (`NEVER_MARKS`
 
 A mark judges the placing the review page SHOWED when it was saved, so a marked row's pose is that page's pose (its
 own fitter run, `--page`), plus his adjustment EXACTLY as saved (`compose`), never the adjustment laid over another
-run's pose. The page shows one run until a switch time (`--page LABEL:DATA:REFIT[:UNTIL]`, in order); a mark whose time
-cannot be placed is refused and listed. The run of record's own pose for a marked sheet is REPORTED when it disagrees,
+run's pose. Every page states its window (`--page LABEL,DATA,REFIT,FROM,UNTIL|showing@TIME`, or the marks export's
+`poses_shown`); a mark saved in no window is refused and listed, so a mark made after the page moved to another run is
+never read against the old run's pose. The run of record's own pose for a marked sheet is REPORTED when it disagrees,
 never applied.
 
 An ACCEPTED ROW IS NEVER REWRITTEN: a rerun appends new acceptances only and reports every row it would now make
-differently (`rerun_disagrees`). Held-out sheets are not rows; they are listed, by reason, in the generated report
+differently (`rerun_disagrees`). A row is WITHDRAWN (kept as a record, `status: withdrawn`, out of the shipping view
+`shipping()`) only by the owner's later wrong mark on its chart or a newer survey of its lake; only his later `right`
+brings it back, as a new decision. Held-out sheets are not rows; they are listed, by reason, in the generated report
 (`GENERATED.bathymetry / "placings_report.json"`).
 
 Held out (each a named rule, flippable): the units (`UNITS_UNSTATED`, D2: a sheet whose vector file states no unit
@@ -23,7 +26,7 @@ waits for its printed chart's words in `CURATED.bathymetry.sheet_units`), a no-d
 item, an adjustment the page's own maths does not reproduce (`OVERLAP_TOLERANCE`).
 
     python -m pipeline.bathymetry.placings --freeze --run-label v5 --marks MARKS.json \\
-        --page v2:PAGE_DATA_DIR:V2_REFIT.json --by OWNER [--dry-run]
+        --page "v2,PAGE_DATA_DIR,V2_REFIT.json,2026-11-28T06:01:00Z,showing@2026-11-28 01:24 MST" --by OWNER [--dry-run]
     python -m pipeline.bathymetry.placings --check                # every row's zip proved, the schema whole
 """
 from __future__ import annotations
@@ -55,8 +58,6 @@ NEVER_MARKS = ("wrong_lake", "wrong_fit", "unsure")
 #: "read": accepted only with its printed chart's unit in `sheet_units.json` (the words, where, the page);
 #: "hold": held out whatever the chart says;  "feet": taken as feet without reading (NOT the default).
 UNITS_UNSTATED = "read"
-#: the feet -> metres factor (exact, international foot)
-FEET = 0.3048
 #: Depth values the Province's files use as a code, not a depth. A sheet carrying one is held out: the arc data cannot
 #: prove what it stands for (Albert Head Lagoon 00019301: 14 arcs at 999 beside the 1 m line, where the chart prints
 #: 0.5 and 1.5 m lines). Flip to drop only those arcs once the owner rules them no-data.
@@ -267,7 +268,22 @@ def load(path: Optional[Path] = None) -> dict:
     d = json.loads(p.read_text(encoding="utf-8"))
     if d.get("schema") != SCHEMA or not isinstance(d.get("placings"), list):
         raise ValueError(f"{p}: not a {SCHEMA} file")
+    for r in d["placings"]:
+        is_shipping(r)                          # a row's status is accepted or withdrawn, nothing else
     return d
+
+
+def is_shipping(row: Mapping) -> bool:
+    """An accepted row ships; a withdrawn one (`status: withdrawn`) is kept as a record and never drawn."""
+    st = row.get("status", "accepted")
+    if st not in ("accepted", "withdrawn"):
+        raise ValueError(f"placing {row.get('sheet')}: status {st!r}")
+    return st == "accepted"
+
+
+def shipping(frozen: Mapping) -> List[dict]:
+    """THE SHIPPING VIEW: the rows a build may draw (every reader of the placings reads this, never `placings`)."""
+    return [r for r in frozen["placings"] if is_shipping(r)]
 
 
 def load_units(path: Optional[Path] = None) -> Dict[str, dict]:
@@ -293,7 +309,9 @@ def empty_file() -> dict:
                        "NEVER rewritten by a rerun (a disagreeing run is reported, not applied). Accepted = the fitter "
                        "run of record's `high` / `high_stretched` placings plus every chart the owner marked `right` / "
                        "`right_adjusted` (his adjustment composed into `pose` and kept as saved in `adjust`); a chart "
-                       "he marked wrong_lake / wrong_fit / unsure never. Each row: the sheet and its zip's sha256, the "
+                       "he marked wrong_lake / wrong_fit / unsure never: his later wrong mark, or a newer survey of the lake, "
+                       "WITHDRAWS a row (`status: withdrawn`, kept as a record, never drawn; `placings.shipping()` is "
+                       "the view every reader takes). Each row: the sheet and its zip's sha256, the "
                        "lake(s) by durable item id, the full pose (origin, mirror, scale, angle_deg, dx, dy; "
                        "refit.apply's order, EPSG:3005 metres), the units with their evidence, how and when it was "
                        "accepted. Read by pipeline.bathymetry.placed_contours (T1268); nothing of a lake's depth ships "
@@ -346,39 +364,100 @@ def lake_items(registry_items: Iterable[Mapping]) -> Dict[str, List[str]]:
 
 # ------------------------------------------------------------------ the freeze
 
-class Page:
-    """One fitter run the review page showed, until `until` (ISO; None = still showing)."""
+#: the zone names a marks export prints its time in (`exported_at`: "2026-11-28 01:24 MST")
+_ZONES = {"UTC": "+00:00", "MST": "-07:00", "MDT": "-06:00", "PST": "-08:00", "PDT": "-07:00"}
 
-    def __init__(self, label: str, data_dir: Path, refit: Path, until: Optional[str] = None):
-        self.label, self.data_dir, self.refit, self.until = label, Path(data_dir), Path(refit), until
+
+def parse_time(s: str) -> dt.datetime:
+    """An ISO time (`Z` or an offset) or a marks export's "YYYY-MM-DD HH:MM ZONE". Raises on anything else (a time
+    with no zone cannot be placed in a window)."""
+    s = s.strip()
+    parts = s.rsplit(" ", 1)
+    if len(parts) == 2 and parts[1] in _ZONES:
+        s = parts[0].replace(" ", "T") + _ZONES[parts[1]]
+    t = dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+    if t.tzinfo is None:
+        raise ValueError(f"{s!r}: a time with no zone")
+    return t
+
+
+class Page:
+    """One fitter run the review page showed, in its window [start, end): a mark saved in the window judged this run's
+    placing. `still_showing`: the page still showed it at `end` (then the marks export must not be newer than `end`)."""
+
+    def __init__(self, label: str, data_dir: Path, refit: Path, start: str, end: str, still_showing: bool = False):
+        self.label, self.data_dir, self.refit = label, Path(data_dir), Path(refit)
+        self.start, self.end, self.still_showing = parse_time(start), parse_time(end), still_showing
+        if self.end <= self.start:
+            raise ValueError(f"page {label}: its window ends ({end}) before it starts ({start})")
         self.rows = json.loads(self.refit.read_text(encoding="utf-8"))["rows"]
         self.sha256 = file_sha256(self.refit)
 
+    def holds(self, t: dt.datetime) -> bool:
+        return self.start <= t < self.end or (self.still_showing and t == self.end)
+
+    def window(self) -> dict:
+        return {"label": self.label, "from": self.start.isoformat(),
+                ("still_showing_at" if self.still_showing else "until"): self.end.isoformat()}
+
     @staticmethod
     def parse(spec: str) -> "Page":
-        parts = spec.split(":")
-        if len(parts) < 3:
-            raise SystemExit(f"--page {spec}: LABEL:DATA_DIR:REFIT_JSON[:UNTIL_ISO]")
-        label, data, refit = parts[0], parts[1], parts[2]
-        until = ":".join(parts[3:]) or None
-        return Page(label, Path(data), Path(refit), until)
+        """LABEL,PAGE_DATA_DIR,REFIT_JSON,FROM,UNTIL where UNTIL is a time or `showing@<time>` (still showing then)."""
+        parts = spec.split(",")
+        if len(parts) != 5:
+            raise SystemExit(f"--page {spec}: LABEL,PAGE_DATA_DIR,REFIT_JSON,FROM_TIME,UNTIL_TIME|showing@TIME "
+                             "(every page states its window)")
+        label, data, refit, start, end = parts
+        showing = end.startswith("showing@")
+        return Page(label, Path(data), Path(refit), start, end[len("showing@"):] if showing else end, showing)
+
+
+def page_from_spec(spec: str, export: Mapping) -> Page:
+    """A `--page` spec; with three parts its window comes from the marks export's `poses_shown` row for that run
+    ({run, from, until} or {run, from, still_showing_at}); with neither, refused."""
+    parts = spec.split(",")
+    if len(parts) == 5:
+        return Page.parse(spec)
+    if len(parts) != 3:
+        raise SystemExit(f"--page {spec}: LABEL,PAGE_DATA_DIR,REFIT_JSON[,FROM_TIME,UNTIL_TIME|showing@TIME]")
+    label = parts[0]
+    rows = [r for r in export.get("poses_shown") or [] if r.get("run") == label]
+    if len(rows) != 1:
+        raise SystemExit(f"--page {spec}: the marks export states no single window for run {label} "
+                         "(`poses_shown`); give FROM_TIME,UNTIL_TIME|showing@TIME")
+    w = rows[0]
+    if w.get("still_showing_at"):
+        return Page(label, Path(parts[1]), Path(parts[2]), w["from"], w["still_showing_at"], True)
+    return Page(label, Path(parts[1]), Path(parts[2]), w["from"], w["until"])
+
+
+def check_pages(pages: Sequence[Page], exported_at: Optional[str]) -> None:
+    """Every page states its window; windows do not overlap; a page "still showing" covers the marks export's own
+    time (an export newer than it may hold marks made on another page). Raises naming the page."""
+    ps = sorted(pages, key=lambda p: p.start)
+    for a, b in zip(ps, ps[1:]):
+        if b.start < a.end:
+            raise ValueError(f"pages {a.label} and {b.label}: their windows overlap")
+    for p in ps:
+        if p.still_showing:
+            if not exported_at:
+                raise ValueError(f"page {p.label} is 'still showing': the marks export must say when it was made")
+            if parse_time(exported_at) > p.end:
+                raise ValueError(f"page {p.label} was still showing at {p.end.isoformat()}, but the marks were "
+                                 f"exported later ({exported_at}): say what the page showed until the export")
 
 
 def page_for(pages: Sequence[Page], saved_at: Optional[str]) -> Optional[Page]:
-    """The page a mark saved at `saved_at` was made on: the first whose `until` is after it. None when not placeable."""
-    if not saved_at or not pages:
+    """The page a mark saved at `saved_at` was made on: the one whose window holds it. None when no window does (or
+    the time cannot be read): the mark is then refused, never read against a guessed run."""
+    if not saved_at:
         return None
     try:
-        t = dt.datetime.fromisoformat(saved_at.replace("Z", "+00:00"))
+        t = parse_time(saved_at)
     except ValueError:
         return None
-    for p in pages:
-        if p.until is None:
-            return p
-        u = dt.datetime.fromisoformat(p.until.replace("Z", "+00:00"))
-        if t < u:
-            return p
-    return None
+    hits = [p for p in pages if p.holds(t)]
+    return hits[0] if len(hits) == 1 else None
 
 
 def _rows_by_sheet(rows: Sequence[Mapping]) -> Dict[str, Mapping]:
@@ -399,25 +478,54 @@ def _rows_by_sheet(rows: Sequence[Mapping]) -> Dict[str, Mapping]:
 def freeze(frozen: dict, *, run_rows: Sequence[Mapping], run_label: str, run_sha256: str,
            marks: Mapping[str, Mapping], pages: Sequence[Page], units: Mapping[str, dict],
            sheets_meta: Mapping[str, Mapping], items: Mapping[str, List[str]], titles: Mapping[str, List[str]],
-           zip_of, today: str, by: str) -> dict:
+           zip_of, today: str, by: str, marks_exported_at: Optional[str] = None) -> dict:
     """Append every newly accepted sheet to `frozen` (in place). Returns the report: added, held out by reason, the
-    run-of-record disagreements and the rerun disagreements. Never rewrites a row already in `frozen`."""
+    rows WITHDRAWN, the run-of-record disagreements and the rerun disagreements.
+
+    An accepted row is never rewritten by a rerun. It is WITHDRAWN (kept as a record, `status: withdrawn`, out of the
+    shipping set) only by (a) the owner's later wrong_lake / wrong_fit / unsure mark on its chart: his decision, not a
+    rerun; (b) a newer survey of its lake accepted later (`SURVEYS_PER_LAKE`). A withdrawn row comes back only as a
+    new decision: a `right` mark saved after the mark that withdrew it, under the pose rules of that freeze."""
+    check_pages(pages, marks_exported_at)
     run = _rows_by_sheet(run_rows)
     have = {r["sheet"]: r for r in frozen["placings"]}
     held: Dict[str, List[dict]] = defaultdict(list)
+    withdrawn: Dict[str, List[dict]] = defaultdict(list)
     run_disagrees, rerun_disagrees, cands = [], [], []
 
     def hold(reason, sheet, **kw):
         held[reason].append(dict(sheet=sheet, **kw))
+
+    def withdraw(row, reason, **kw):
+        row["status"] = "withdrawn"
+        row["withdrawn"] = dict(reason=reason, on=today, by=by, **kw)
+        withdrawn[reason].append(dict(sheet=row["sheet"], title=row.get("title"),
+                                      lakes=[lk["wbk"] for lk in row["lakes"]], **kw))
 
     for sheet in sorted(set(run) | set(marks)):
         r = run.get(sheet)
         m = marks.get(sheet) or {}
         verdict = m.get("verdict")
         title = (titles.get(r["zip"]) if r else None) or [m.get("chart_title")]
+        old = have.get(sheet)
+        mark_rec = ({k: m.get(k) for k in ("verdict", "saved_at", "note", "chart_title", "lake_after")}
+                    if verdict else None)
         if verdict in NEVER_MARKS:
-            hold(f"owner_marked_{verdict}", sheet, title=title, note=m.get("note", ""))
+            if old is not None and is_shipping(old):
+                withdraw(old, f"owner_marked_{verdict}", mark=mark_rec)
+            elif old is None:
+                hold(f"owner_marked_{verdict}", sheet, title=title, note=m.get("note", ""))
+            else:
+                hold("withdrawn_stays_withdrawn", sheet, why=old["withdrawn"]["reason"])
             continue
+        if old is not None and not is_shipping(old):
+            why = old["withdrawn"]["reason"]
+            wm = (old["withdrawn"].get("mark") or {}).get("saved_at")
+            new_decision = (verdict in ACCEPT_MARKS and why.startswith("owner_marked_") and wm and m.get("saved_at")
+                            and parse_time(m["saved_at"]) > parse_time(wm))
+            if not new_decision:
+                hold("withdrawn_stays_withdrawn", sheet, why=why)
+                continue
         if verdict and verdict not in ACCEPT_MARKS:
             hold("mark_verdict_unknown", sheet, verdict=verdict)
             continue
@@ -432,7 +540,8 @@ def freeze(frozen: dict, *, run_rows: Sequence[Mapping], run_label: str, run_sha
         if verdict:
             page = page_for(pages, m.get("saved_at"))
             if page is None:
-                hold("mark_base_unknown", sheet, saved_at=m.get("saved_at"))
+                hold("mark_outside_page_windows", sheet, saved_at=m.get("saved_at"),
+                     windows=[p.window() for p in pages])
                 continue
             prow = _rows_by_sheet(page.rows).get(sheet)
             if prow is None or prow.get("state") != "fitted":
@@ -529,8 +638,8 @@ def freeze(frozen: dict, *, run_rows: Sequence[Mapping], run_label: str, run_sha
             "fitter_run": {"label": base_label, "sha256": base_sha, "class": class_of_run_row(base_row),
                            "confidence": base_row.get("confidence")},
             "adjust": adjust_rec,
-            "mark": ({k: m.get(k) for k in ("verdict", "saved_at", "note", "chart_title", "lake_after")}
-                     if verdict else None),
+            "mark": mark_rec,
+            "status": "accepted",
             "draft_date": (meta.get("draft_date") or "").rstrip("Z") or None,
             "accepted_on": today, "accepted_by": by,
         }
@@ -545,10 +654,11 @@ def freeze(frozen: dict, *, run_rows: Sequence[Mapping], run_label: str, run_sha
                                       "run_confidence": r.get("confidence")})
         cands.append(cand)
 
-    # --- D9: one survey per lake
+    # --- D9: one survey per lake. A lake is drawn by ONE shipping row (a two-lake sheet's two lakes are two lakes)
     if SURVEYS_PER_LAKE == "newest":
         by_lake: Dict[str, List[dict]] = defaultdict(list)
-        for c in cands + list(have.values()):
+        cand_sheets = {c["sheet"] for c in cands}
+        for c in cands + [h for h in have.values() if is_shipping(h) and h["sheet"] not in cand_sheets]:
             for lk in c["lakes"]:
                 by_lake[lk["wbk"]].append(c)
         drop = set()
@@ -557,32 +667,49 @@ def freeze(frozen: dict, *, run_rows: Sequence[Mapping], run_label: str, run_sha
                 continue
             keep = max(cs, key=lambda c: (c.get("draft_date") or "", c["sheet"]))
             for c in cs:
-                if c["sheet"] != keep["sheet"] and c["sheet"] not in have:
-                    drop.add(c["sheet"])
+                if c["sheet"] == keep["sheet"] or c["sheet"] in drop:
+                    continue
+                old = have.get(c["sheet"])
+                if old is not None and is_shipping(old):
+                    withdraw(old, "superseded_by_newer_survey", lake=w, draft_date=c.get("draft_date"),
+                             kept=keep["sheet"], kept_draft_date=keep.get("draft_date"))
+                else:
                     hold("older_survey", c["sheet"], lake=w, draft_date=c.get("draft_date"),
                          kept=keep["sheet"], kept_draft_date=keep.get("draft_date"))
+                drop.add(c["sheet"])
         cands = [c for c in cands if c["sheet"] not in drop]
 
-    added = []
+    added, re_accepted = [], []
     for c in cands:
-        if c["sheet"] in have:
-            old = have[c["sheet"]]
+        old = have.get(c["sheet"])
+        if old is not None and is_shipping(old):
             diff = {k: (old.get(k), c.get(k)) for k in ("pose", "lakes", "units", "accepted_as", "zip_sha256")
                     if old.get(k) != c.get(k)}
             if diff:
                 rerun_disagrees.append({"sheet": c["sheet"], "differs": sorted(diff)})
             continue
+        if old is not None:                         # withdrawn, and his later right mark re-accepts it: a new row
+            c["previous"] = (old.get("previous") or []) + [{k: v for k, v in old.items() if k != "previous"}]
+            frozen["placings"][frozen["placings"].index(old)] = c
+            re_accepted.append(c["sheet"])
+            continue
         frozen["placings"].append(c)
         added.append(c["sheet"])
     frozen["placings"].sort(key=lambda r: r["sheet"])
-    return {"added": added, "kept": sorted(have), "held_out": {k: sorted(v, key=lambda x: x["sheet"])
-                                                                 for k, v in sorted(held.items())},
+    ship = shipping(frozen)
+    return {"added": added, "re_accepted": re_accepted, "kept": sorted(k for k, v in have.items() if is_shipping(v)),
+            "WITHDRAWN": {k: sorted(v, key=lambda x: x["sheet"]) for k, v in sorted(withdrawn.items())},
+            "held_out": {k: sorted(v, key=lambda x: x["sheet"]) for k, v in sorted(held.items())},
             "run_disagrees": run_disagrees, "rerun_disagrees": rerun_disagrees,
-            "counts": {"rows": len(frozen["placings"]), "added": len(added),
+            "pages": [p.window() for p in pages],
+            "counts": {"rows": len(frozen["placings"]), "shipping": len(ship), "added": len(added),
+                       "re_accepted": len(re_accepted),
+                       "withdrawn_now": {k: len(v) for k, v in sorted(withdrawn.items())},
+                       "withdrawn_total": len(frozen["placings"]) - len(ship),
                        "held_out": {k: len(v) for k, v in sorted(held.items())},
-                       "accepted_as": dict(Counter(r["accepted_as"] for r in frozen["placings"])),
-                       "units": dict(Counter(r["units"] for r in frozen["placings"])),
-                       "lakes": len({lk["item"] for r in frozen["placings"] for lk in r["lakes"]})},
+                       "accepted_as": dict(Counter(r["accepted_as"] for r in ship)),
+                       "units": dict(Counter(r["units"] for r in ship)),
+                       "lakes": len({lk["item"] for r in ship for lk in r["lakes"]})},
             "policy": {"ACCEPT_CLASSES": ACCEPT_CLASSES, "ACCEPT_MARKS": ACCEPT_MARKS, "NEVER_MARKS": NEVER_MARKS,
                        "UNITS_UNSTATED": UNITS_UNSTATED, "NO_DATA_DEPTHS": NO_DATA_DEPTHS,
                        "SURVEYS_PER_LAKE": SURVEYS_PER_LAKE, "OVERLAP_TOLERANCE": OVERLAP_TOLERANCE,
@@ -626,7 +753,9 @@ def main(argv=None) -> int:
     ap.add_argument("--run-label", help="the run of record's name (e.g. v5)")
     ap.add_argument("--marks", type=Path, help="the owner's marks export (marks-<date>.json)")
     ap.add_argument("--page", action="append", default=[],
-                    help="LABEL:PAGE_DATA_DIR:REFIT_JSON[:UNTIL_ISO], in the order the page showed them")
+                    help="LABEL,PAGE_DATA_DIR,REFIT_JSON[,FROM_TIME,UNTIL_TIME|showing@TIME]: a run the review page "
+                         "showed and its window; without the two times the window is read from the marks export's "
+                         "`poses_shown` (run, from, until | still_showing_at)")
     ap.add_argument("--by", help="who accepts (the owner's rule, recorded on every new row)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--today", default=None, help=argparse.SUPPRESS)
@@ -647,8 +776,9 @@ def main(argv=None) -> int:
     if not run_path.is_file():
         raise SystemExit(f"{run_path}: no run of record; run `python -m pipeline.bathymetry.refit_all` (heavy.sh) first")
     run_doc = json.loads(run_path.read_text(encoding="utf-8"))
-    marks = json.loads(a.marks.read_text(encoding="utf-8"))["marks"] if a.marks else {}
-    pages = [Page.parse(s) for s in a.page]
+    export = json.loads(a.marks.read_text(encoding="utf-8")) if a.marks else {}
+    marks = export.get("marks", {})
+    pages = [page_from_spec(s, export) for s in a.page]
     if marks and not pages:
         raise SystemExit("--marks needs --page: a mark is relative to the placing the page showed")
     from pipeline.bathymetry import vectors
@@ -659,10 +789,11 @@ def main(argv=None) -> int:
                     marks=marks, pages=pages, units=load_units(), sheets_meta=sheets_meta, items=lake_items(reg),
                     titles=run_doc.get("titles", {}),
                     zip_of=lambda n: (vectors.zip_path(n), vectors.zip_sha256(n)),
-                    today=a.today or dt.date.today().isoformat(), by=a.by)
+                    today=a.today or dt.date.today().isoformat(), by=a.by,
+                    marks_exported_at=export.get("exported_at"))
     report["run"] = {"label": a.run_label, "path": str(run_path), "sha256": file_sha256(run_path)}
     report["marks"] = str(a.marks) if a.marks else None
-    report["pages"] = [{"label": p.label, "refit": str(p.refit), "sha256": p.sha256, "until": p.until} for p in pages]
+    report["pages"] = [dict(p.window(), refit=str(p.refit), sha256=p.sha256) for p in pages]
     out = GENERATED.mkdir("bathymetry") / "placings_report.json"
     out.write_text(_dump(report), encoding="utf-8")
     print(json.dumps(report["counts"], indent=1))

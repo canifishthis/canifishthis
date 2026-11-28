@@ -227,7 +227,8 @@ def _freeze(env, run_rows, frozen=None, marks=None, pages=(), units=None, items=
     frozen = frozen if frozen is not None else P.empty_file()
     rep = P.freeze(frozen, run_rows=run_rows, run_label="v5", run_sha256="r5", marks=marks or {}, pages=list(pages),
                    units=units or {}, sheets_meta=meta or {}, items=items or {"wbk:1": ["wbk:1"], "wbk:2": ["wbk:2"]},
-                   titles={}, zip_of=env.zip_of, today="2026-11-28", by="test")
+                   titles={}, zip_of=env.zip_of, today="2026-11-28", by="test",
+                   marks_exported_at="2026-11-28 01:24 MST")
     return frozen, rep
 
 
@@ -275,8 +276,8 @@ def test_a_right_mark_takes_the_pose_he_saw_and_the_run_s_disagreement_is_only_r
     _zip(env.dir, "00000001.zip")
     v2 = [_row("00000001", "review", pose_dx=1_000_000.0)]
     v5 = [_row("00000001", "review", pose_dx=1_000_300.0)]                # v5 moved it 300 m: not what he saw
-    page = P.Page("v2", _write_page(env, "00000001", 1_000_000.0), _page_run(env, v2), None)
-    marks = {"00000001": {"verdict": "right", "saved_at": "2026-11-28T06:00:00Z", "lake_after": "wbk:1"}}
+    page = P.Page("v2", _write_page(env, "00000001", 1_000_000.0), _page_run(env, v2), "2026-11-28T06:01:00Z", "2026-11-28T08:30:00Z", True)
+    marks = {"00000001": {"verdict": "right", "saved_at": "2026-11-28T07:00:00Z", "lake_after": "wbk:1"}}
     frozen, rep = _freeze(env, v5, marks=marks, pages=[page])
     r = frozen["placings"][0]
     assert r["accepted_as"] == "right" and r["pose"]["dx"] == 1_000_000.0 and r["fitter_run"]["label"] == "v2"
@@ -292,7 +293,7 @@ def test_an_adjusted_mark_is_composed_on_its_own_page_s_pose_never_on_the_run_s(
     pc = P.read_page_chart(data, "00000001")
     adj = {"turn_deg": 2, "scale": 0.84, "mirror": False, "dx_m": 40, "dy_m": 50, "on_lake": "wbk:1"}
     adj["overlap"] = round(pc.overlap(adj), 3)
-    page = P.Page("v2", data, _page_run(env, v2), None)
+    page = P.Page("v2", data, _page_run(env, v2), "2026-11-28T06:01:00Z", "2026-11-28T08:30:00Z", True)
     marks = {"00000001": {"verdict": "right_adjusted", "adjusted": True, "adjust": adj,
                           "saved_at": "2026-11-28T08:21:54Z", "lake_after": "wbk:1"}}
     frozen, rep = _freeze(env, v5, marks=marks, pages=[page])
@@ -312,20 +313,105 @@ def test_an_adjustment_whose_saved_overlap_is_not_reproduced_is_refused(tmp_path
     data = _write_page(env, "00000001", 1e6)
     adj = {"turn_deg": 2, "scale": 0.84, "mirror": False, "dx_m": 40, "dy_m": 50, "on_lake": "wbk:1", "overlap": 0.99}
     marks = {"00000001": {"verdict": "right_adjusted", "adjusted": True, "adjust": adj, "saved_at": "2026-11-28T08:00Z"}}
-    frozen, rep = _freeze(env, v2, marks=marks, pages=[P.Page("v2", data, _page_run(env, v2), None)])
+    frozen, rep = _freeze(env, v2, marks=marks, pages=[P.Page("v2", data, _page_run(env, v2), "2026-11-28T06:01:00Z", "2026-11-28T08:30:00Z", True)])
     assert frozen["placings"] == [] and rep["held_out"]["adjust_not_reproduced"][0]["saved"] == 0.99
 
 
-def test_a_mark_made_after_the_page_switched_is_read_against_the_next_page_or_refused(tmp_path):
+def test_a_mark_outside_every_page_window_is_refused_naming_it(tmp_path):
     env = _Env(tmp_path)
     _zip(env.dir, "00000001.zip")
     v2 = [_row("00000001", "review", refit=False)]
-    page = P.Page("v2", _write_page(env, "00000001", 1e6), _page_run(env, v2), "2026-11-28T09:00:00Z")
+    page = P.Page("v2", _write_page(env, "00000001", 1e6), _page_run(env, v2), "2026-11-28T06:01:00Z",
+                  "2026-11-28T09:00:00Z")
     marks = {"00000001": {"verdict": "right", "saved_at": "2026-11-28T10:00:00Z"}}
     frozen, rep = _freeze(env, v2, marks=marks, pages=[page])
-    assert frozen["placings"] == [] and "mark_base_unknown" in rep["held_out"]
+    assert frozen["placings"] == []
+    assert rep["held_out"]["mark_outside_page_windows"][0]["saved_at"] == "2026-11-28T10:00:00Z"
     assert P.page_for([page], "2026-11-28T08:59:59Z") is page
-    assert P.page_for([page], None) is None
+    assert P.page_for([page], "2026-11-28T06:00:59Z") is None and P.page_for([page], None) is None
+
+
+def test_a_page_still_showing_must_cover_the_marks_export(tmp_path):
+    env = _Env(tmp_path)
+    v2 = [_row("00000001", "review", refit=False)]
+    page = P.Page("v2", _write_page(env, "00000001", 1e6), _page_run(env, v2), "2026-11-28T06:01:00Z",
+                  "2026-11-28 01:24 MST", True)
+    P.check_pages([page], "2026-11-28 01:24 MST")
+    with pytest.raises(ValueError, match="exported later"):
+        P.check_pages([page], "2026-11-28 03:00 MST")
+    with pytest.raises(ValueError, match="must say when"):
+        P.check_pages([page], None)
+    with pytest.raises(SystemExit, match="every page states its window"):
+        P.Page.parse("v2,d,r")
+    assert P.parse_time("2026-11-28 01:24 MST") == P.parse_time("2026-11-28T08:24:00Z")
+
+
+def test_the_window_is_read_from_the_export_when_it_states_one(tmp_path):
+    env = _Env(tmp_path)
+    data = _write_page(env, "00000001", 1e6)
+    refit = _page_run(env, [_row("00000001", "review", refit=False)])
+    export = {"exported_at": "2026-11-28 03:10 MST",
+              "poses_shown": [{"run": "v2", "from": "2026-11-28T06:01:00Z", "until": "2026-11-28T10:00:00Z"},
+                              {"run": "v5", "from": "2026-11-28T10:00:00Z", "still_showing_at": "2026-11-28 03:10 MST"}]}
+    v2 = P.page_from_spec(f"v2,{data},{refit}", export)
+    v5 = P.page_from_spec(f"v5,{data},{refit}", export)
+    assert P.page_for([v2, v5], "2026-11-28T09:59:59Z") is v2 and P.page_for([v2, v5], "2026-11-28T10:00:00Z") is v5
+    with pytest.raises(SystemExit, match="no single window"):
+        P.page_from_spec(f"v3,{data},{refit}", export)
+
+
+def test_a_wrong_mark_after_the_freeze_withdraws_the_row_and_it_never_ships(tmp_path):
+    env = _Env(tmp_path)
+    _zip(env.dir, "00000001.zip")
+    frozen, _ = _freeze(env, [_row("00000001", "high")])
+    assert [r["sheet"] for r in P.shipping(frozen)] == ["00000001"]
+    marks = {"00000001": {"verdict": "wrong_fit", "saved_at": "2026-11-29T01:00:00Z", "note": "off"}}
+    frozen, rep = _freeze(env, [_row("00000001", "high")], frozen=frozen, marks=marks)
+    assert P.shipping(frozen) == []
+    row = frozen["placings"][0]
+    assert row["status"] == "withdrawn" and row["withdrawn"]["reason"] == "owner_marked_wrong_fit"
+    assert row["withdrawn"]["mark"]["saved_at"] == "2026-11-29T01:00:00Z"
+    assert rep["WITHDRAWN"]["owner_marked_wrong_fit"][0]["sheet"] == "00000001"
+    assert "owner_marked_wrong_fit" not in rep["held_out"]
+    # a rerun with the same mark keeps it withdrawn; it is never re-accepted by its class
+    frozen, rep = _freeze(env, [_row("00000001", "high")], frozen=frozen, marks=marks)
+    assert P.shipping(frozen) == [] and "withdrawn_stays_withdrawn" in rep["held_out"]
+
+
+def test_only_a_later_right_mark_brings_a_withdrawn_row_back_as_a_new_decision(tmp_path):
+    env = _Env(tmp_path)
+    _zip(env.dir, "00000001.zip")
+    v2 = [_row("00000001", "high", refit=False)]
+    frozen, _ = _freeze(env, v2)
+    frozen, _ = _freeze(env, v2, frozen=frozen,
+                        marks={"00000001": {"verdict": "unsure", "saved_at": "2026-11-28T07:00:00Z"}})
+    page = P.Page("v2", _write_page(env, "00000001", 1e6), _page_run(env, v2), "2026-11-28T06:01:00Z",
+                  "2026-11-28T09:00:00Z")
+    later = {"00000001": {"verdict": "right", "saved_at": "2026-11-28T08:00:00Z", "lake_after": "wbk:1"}}
+    frozen, rep = _freeze(env, v2, frozen=frozen, marks=later, pages=[page])
+    row = frozen["placings"][0]
+    assert rep["re_accepted"] == ["00000001"] and row["status"] == "accepted" and row["accepted_as"] == "right"
+    assert row["previous"][0]["status"] == "withdrawn"
+
+
+def test_a_newer_survey_accepted_later_withdraws_the_older_row(tmp_path):
+    env = _Env(tmp_path)
+    _zip(env.dir, "00000001.zip")
+    _zip(env.dir, "00000002.zip")
+    meta = {"00000001": {"draft_date": "1971-11-01Z"}, "00000002": {"draft_date": "1987-04-15Z"}}
+    frozen, _ = _freeze(env, [_row("00000001", "high"), _row("00000002", "review")], meta=meta)
+    frozen, rep = _freeze(env, [_row("00000001", "high"), _row("00000002", "high")], frozen=frozen, meta=meta)
+    assert [r["sheet"] for r in P.shipping(frozen)] == ["00000002"]
+    assert rep["WITHDRAWN"]["superseded_by_newer_survey"][0]["kept"] == "00000002"
+    lakes = [lk["wbk"] for r in P.shipping(frozen) for lk in r["lakes"]]
+    assert len(lakes) == len(set(lakes))                     # never two shipping rows for one lake
+
+
+def test_a_bad_status_is_refused_on_load(tmp_path):
+    p = tmp_path / "placings.json"
+    p.write_text(json.dumps({"schema": P.SCHEMA, "placings": [{"sheet": "1", "status": "maybe"}]}))
+    with pytest.raises(ValueError, match="status"):
+        P.load(p)
 
 
 def test_a_sheet_without_a_stated_unit_waits_for_the_printed_chart(tmp_path):
