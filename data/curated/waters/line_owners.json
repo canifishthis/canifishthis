@@ -1,0 +1,21 @@
+{
+ "_about": "THE LINE OWNERS (T1259): FWA blue lines that belong to another water than the one FWA's watershed codes give them. Written through `pipeline.common.curated_write` (A2); read by the atlas build (`graph.names.apply_line_owners`: the name-variant mechanism with validation, an override name carrying the water's gnis at the same graph step; `check_line_owners` after the registry). Each entry: `blks`, `water` (where they go), `from` (whose they are today), `name`, `words` (what decided it). A line named here must not also be named in name_variants.json.",
+ "owners": [
+  {
+   "blks": [
+    "360222216",
+    "360222215"
+   ],
+   "water": "gnis:3942",
+   "from": "gnis:2936",
+   "name": "Kitsumkalum River",
+   "words": {
+    "dfo": "Kitsumkalum River (including tributaries) Note: The mouth of the Kitsumkalum River is designated by fishing boundary signs located approx. 1.25 km downstream of the CNR bridge and approx. 200 m east of the CNR bridge.",
+    "owner_reading": "the signsd for th emouth are really just saying that the mouth makes kitsumkalum include the braiding next to it on the skeena if that makes sense. it doesnt mean the mainstem of the skeeen is included in kitsumkalum only the sidechannel braiding there.",
+    "owner_question": "thos e braids should be added as name variants of the stream and be moved to the stream instead of being part of the skeena all the way dopwn to the build step? ",
+    "owner_pick": "B: the braids become Kitsumkalum water",
+    "what": "the two Skeena side channels between DFO's two mouth signs (1.63 km and 0.63 km, 2.26 km); the Skeena's main line stays the Skeena's; picked 2026-11-27 with the A/B picture showing Class II all year, the Steelhead Stamp Aug 7-May 31, steelhead closed May 15-Jun 15 and the Sunday closure to non-guided non-resident aliens"
+   }
+  }
+ ]
+}

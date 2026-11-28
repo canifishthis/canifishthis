@@ -223,6 +223,118 @@ def load_name_variants(path) -> list[dict]:
     return entries(json.loads(p.read_text()), "entries")
 
 
+#: (T1259) THE LINE OWNERS (`waters/line_owners.json`): FWA blue lines that belong to ANOTHER water than the one FWA's
+#: codes give them. The owner, 2026-11-27, on the Kitsumkalum's mouth: "thos e braids should be added as name variants of
+#: the stream and be moved to the stream ..."; his pick: "B: the braids become Kitsumkalum water". The SAME mechanism as a
+#: name variant scoped to a gnis (`apply_name_variants`: the name it adds carries the water's gnis, and the registry
+#: groups an unnamed line by its first name's gnis, `registry.build._effective_gnis`), at the same graph step, with an
+#: override name so it ranks above the inherited side-channel name — plus what a name variant does not check: each
+#: line must exist, must belong today to the water the entry says it comes `from`, the water it goes to must exist,
+#: and no name variant may name an assigned line or move it elsewhere. Every refusal names the line.
+LINE_OWNER_KEYS = frozenset({"blks", "water", "from", "name", "words"})
+
+
+def load_line_owners(path) -> list[dict]:
+    """(T1259) `waters/line_owners.json`: `{"_about", "owners": [{"blks": [blue line keys], "water": "gnis:<id>"
+    (where they go), "from": "gnis:<id>" (whose they are today), "name": the water's name, "words": {what decided it:
+    DFO's, the owner's}}]}`. A missing file raises (AGENTS 37); an unknown key, an empty entry, a malformed id, or a
+    line in two entries is refused by name."""
+    p = Path(path)
+    d = json.loads(p.read_text())
+    if not isinstance(d, dict) or set(d) - {"_about", "owners"} or not d.get("_about") or "owners" not in d:
+        raise ValueError(f"{p}: line owners need exactly `_about` and `owners`")
+    seen: dict[str, int] = {}
+    for i, e in enumerate(d["owners"]):
+        if not isinstance(e, dict) or set(e) - LINE_OWNER_KEYS:
+            raise ValueError(f"{p}: entry {i}: unknown keys {sorted(set(e) - LINE_OWNER_KEYS) if isinstance(e, dict) else e}")
+        if not e.get("blks") or not e.get("name") or not e.get("words"):
+            raise ValueError(f"{p}: entry {i}: empty (blks, name and words are needed)")
+        for k in ("water", "from"):
+            if not str(e.get(k) or "").startswith("gnis:") or not str(e[k])[5:].isdigit():
+                raise ValueError(f"{p}: entry {i}: `{k}` must be a gnis water id, not {e.get(k)!r}")
+        if e["water"] == e["from"]:
+            raise ValueError(f"{p}: entry {i}: `water` and `from` are both {e['water']}")
+        for b in e["blks"]:
+            if not str(b).isdigit():
+                raise ValueError(f"{p}: entry {i}: blue line {b!r} is not a blue line key")
+            if str(b) in seen:
+                raise ValueError(f"{p}: blue line {b} is in entries {seen[str(b)]} and {i}")
+            seen[str(b)] = i
+    return list(d["owners"])
+
+
+def line_owner_blks(owners) -> set[str]:
+    """The blue lines the line owners assign (named, so the naming and the prune leave them to their water)."""
+    return {str(b) for e in owners or () for b in e["blks"]}
+
+
+def apply_line_owners(graph: StreamGraph, owners: list[dict], name_variants: list[dict] = ()) -> int:
+    """(T1259) Give each assigned line's pieces an OVERRIDE name carrying its new water's gnis, and that name as its
+    label: the registry then groups them under that water (`registry.build._effective_gnis`). Refused, by line: a line
+    a name variant names too (by blk); a line not in the graph; a line that belongs today to another water than the
+    entry's `from`; a `water` no graph node carries; a piece already carrying an override name of another gnis (a name
+    variant that would move it elsewhere). Returns the pieces named."""
+    from pipeline.atlas.registry.build import _effective_gnis, _wsc_gnis_map
+    if not owners:
+        return 0
+    both = sorted(line_owner_blks(owners) & {str(b) for e in name_variants or () for b in
+                                              ((e.get("target") or {}).get("blks") or []) +
+                                              ([(e.get("target") or {})["blk"]] if (e.get("target") or {}).get("blk") else [])})
+    if both:
+        raise ValueError(f"line owners: blue line(s) {both} are also named by name_variants.json: one file decides")
+    wsc_gnis = _wsc_gnis_map(graph)
+    by_blk: dict[str, list[str]] = {}
+    waters: set[str] = set()
+    for nid, n in graph.nodes.items():
+        if n.kind == NodeKind.stream and n.blk:
+            by_blk.setdefault(str(n.blk), []).append(nid)
+        if n.gnis_id:
+            waters.add(f"gnis:{n.gnis_id}")
+    named = 0
+    for e in owners:
+        gid = e["water"][5:]
+        if e["water"] not in waters:
+            raise ValueError(f"line owners: water {e['water']} ({e['name']}) is not in the graph")
+        for b in e["blks"]:
+            nids = by_blk.get(str(b))
+            if not nids:
+                raise ValueError(f"line owners: blue line {b} ({e['name']}) does not exist in the graph")
+            for nid in nids:
+                node = graph.nodes[nid]
+                now = _effective_gnis(node, wsc_gnis)
+                if f"gnis:{now}" != e["from"]:
+                    raise ValueError(f"line owners: blue line {b} belongs to gnis:{now or '(none)'}, not to "
+                                     f"{e['from']} as its entry says (a third water owns it)")
+                other = [t for t in node.name_tuples if t.source == NameSource.override and t.gnis_id
+                         and t.gnis_id != gid]
+                if other:
+                    raise ValueError(f"line owners: blue line {b} carries an override name of gnis:{other[0].gnis_id} "
+                                     f"('{other[0].name}'), which would move it elsewhere")
+                tup = NameTuple(e["name"], NameSource.override, "line_owners.json (T1259)", gnis_id=gid)
+                graph.nodes[nid] = replace(node, name_tuples=_sorted_unique([tup, *node.name_tuples]),
+                                           display_name=_display_case(e["name"]))
+                named += 1
+    return named
+
+
+def check_line_owners(registry: dict, owners: list[dict], graph: StreamGraph) -> None:
+    """(T1259) After the registry: every piece of an assigned line is in its new water's item, never the old one's, and
+    none was removed on the way (a prune or a loop pass). A line that did not land stops the build, by name."""
+    for e in owners or ():
+        it = registry.get(e["water"])
+        have = set(getattr(it, "section_ids", ()) or ())
+        old = set(getattr(registry.get(e["from"]), "section_ids", ()) or ())
+        for b in e["blks"]:
+            nids = [nid for nid, n in graph.nodes.items() if n.kind == NodeKind.stream and str(n.blk) == str(b)]
+            if not nids:
+                raise ValueError(f"line owners: blue line {b} ({e['name']}) was removed before the registry "
+                                 f"(a prune or a loop pass): keep it or drop the entry")
+            stray = [nid for nid in nids if nid not in have or nid in old]
+            if stray:
+                raise ValueError(f"line owners: blue line {b}: {len(stray)} piece(s) not in {e['water']}'s item "
+                                 f"({e['name']}) after the registry, e.g. {stray[0]}")
+
+
 _REACH_MIN_OVERLAP_M = 1.0   # a reach must overlap a section by more than this to name it (proximity)
 _REACH_SNAP_M = 50.0         # snap an authored reach bound to a section boundary within this many
                              # route-metres (like split proximity pickup) so approximate/rounded

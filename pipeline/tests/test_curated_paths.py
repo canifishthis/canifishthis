@@ -328,7 +328,7 @@ class TestTheWholeFileIsStrict:
                 blob = blob[k]
             return True
         got = {".".join(k): (bool(at), has(stated, k)) for k, at in walk(C.Config) if k[0] in C.TREES}
-        assert len(got) == 79 and all(has(names, k.split(".")) == a for k, (a, _s) in got.items())
+        assert len(got) == 80 and all(has(names, k.split(".")) == a for k, (a, _s) in got.items())
         assert {k for k, (a, s) in got.items() if s} == {"source.fwa_gpkg"}          # the file's one path
         assert not [k for k, (a, s) in got.items() if a == s], "a path named in both places, or in neither"
 
@@ -486,7 +486,7 @@ class TestOneRootPerTree:
             for k in keys[1:]:
                 got = getattr(got, k)
             assert got == C.ROOT / roots[keys[0]] / _at(blob, keys), keys
-        assert len(leaves) == 79
+        assert len(leaves) == 80                     # +1 T1259: waters/line_owners.json
         assert set(roots) == set(C.Roots.model_fields) == {*C.TREES, "release"}
 
     @pytest.mark.parametrize("at", [("curated", "waters", "cuts"), ("curated", "review", "marks"),
@@ -788,6 +788,7 @@ FROZEN_NAMES = {
     "curated.waters.name_variants": "waters/name_variants.json",
     "curated.waters.found_names": "waters/found_names.json",
     "curated.waters.found_name_calls": "waters/found_name_calls.json",
+    "curated.waters.line_owners": "waters/line_owners.json",
     "curated.waters.continuations": "waters/continuations.json",
     "curated.waters.tidal_limits": "waters/tidal_limits.json",
     "curated.waters.shore_held": "waters/shore_held.json",

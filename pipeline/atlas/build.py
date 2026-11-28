@@ -484,6 +484,7 @@ class _Build:
         self._t0 = self._prev = self._clock()
         self.timings: list[tuple[str, float]] = []
         self.splits = None              # curated + gauge split defs (gauge_cuts)
+        self._owners: list = []         # T1259: waters/line_owners.json (build_graph)
         self.splits_doc = None          # the splits.json document read now: its anchors are recorded (T133)
         self.matches_sha = None         # the gauge match file's digest, when the build cuts at gauges
         self.cuts_sha = None            # the digest of the gauge cut set made from it (T159)
@@ -624,7 +625,11 @@ def build_graph(b: _Build) -> None:
     from pipeline.atlas.graph.prune import nv_blks
     b._nv_all = (load_name_variants(b.args.name_variants or CURATED.waters.name_variants)
                  + _added_name_variant_entries(b.add_nv))
-    chains = resolve_names(build_blk_chains(fids, lake_kind), fids, curated_blks=nv_blks(b._nv_all))
+    # (T1259) the line owners: blue lines curation gives to another water — named, so the naming leaves them alone
+    from pipeline.atlas.graph.names import line_owner_blks, load_line_owners
+    b._owners = load_line_owners(CURATED.waters.line_owners)
+    chains = resolve_names(build_blk_chains(fids, lake_kind), fids,
+                           curated_blks=nv_blks(b._nv_all) | line_owner_blks(b._owners))
 
     print("building stream graph (lakes as nodes) ...")
     graph = build_stream_graph(chains, fids, lake_kind, lake_names, lake_wsc=lake_wsc)
@@ -676,6 +681,10 @@ def add_waters(b: _Build) -> None:
     if _nv_now:
         n = apply_name_variants(graph, _nv_now)
         print(f"  named {len(_nv_now)} variant entries before the prune -> {n} node attachments")
+    # (T1259) the line owners, at the same step and by the same mechanism (an override name carrying the water's gnis)
+    from pipeline.atlas.graph.names import apply_line_owners
+    n = apply_line_owners(graph, b._owners, _nv_all)
+    print(f"  line owners: {len(b._owners)} entr(ies) -> {n} piece(s) named to their water")
     # A waterbody becomes a graph node because stream fids pass THROUGH it. Two kinds of named,
     # regulated water therefore never got one: ISOLATED waters with no stream connection at all
     # (Frazer Lake, Hall Road Pond, Kinglet Lake) and OVERLAID ones where a stream crosses the polygon
@@ -1721,6 +1730,9 @@ def build_registry(b: _Build) -> None:
     # hand, so an FWA-unnamed water a regulation names still becomes an item. See
     # `pipeline.atlas.registry.build.pinned_by_override`.
     registry, _info = water_registry(b, graph)
+    # (T1259) every line the line owners assign landed in its water's item (none pruned, none left behind)
+    from pipeline.atlas.graph.names import check_line_owners
+    check_line_owners(registry, b._owners, graph)
     print(f"  registry: {_info['named']} named items")
     print(f"  + {_info['lakes']} isolated named lake item(s) + {_info['wetlands']} named wetland item(s)")
     print(f"  + {_info['curated_wbk']} curated-only wbk item(s) (named via name_variants)")

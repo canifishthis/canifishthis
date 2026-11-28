@@ -33,6 +33,8 @@ Between the two sign points there are exactly two braids, both FWA Skeena side c
   Gate", bound today to 11.84 km (the main-line section plus three side channels).
 - Checked: OSM's CN line crosses the Kitsumkalum 14.6 m from the curated bridge point.
 - Not verified: the signs' real positions on the ground; no imagery was used.
+- Built as B (owner 2026-11-27: "B: the braids become Kitsumkalum water"; branch `fix/T1259-kitsumkalum-braids-own-water`): `waters/line_owners.json` gives blue lines 360222216 and 360222215 to the Kitsumkalum River (`graph.names.apply_line_owners`, the name-variant mechanism with validation, `check_line_owners` after the registry); RULINGS E34. His words were "added as name variants of the stream": a name variant scoped to a gnis CAN move lines (the earlier "it cannot" was ours); line_owners is that mechanism validated. Option A (DFO-place extents, branch `fix/T1259-kitsumkalum-delta-braids` at dce8fcb2e) is kept as a reference, not merged.
+- To measure before merge (side atlas build): the four book rules he accepted, the salmon, the unnamed creek 360792160 that joins the larger braid (a possible new Kitsumkalum tributary), part counts on both pages, and that no Kitsumkalum walk climbs the Skeena.
 
 ## Part 2 — after 0.10.0 (0.11.0), open lines, not built
 Each needs a picture and the owner's decision.
@@ -56,4 +58,5 @@ Target: part 1 in 0.10.0; part 2 in 0.11.0. Depends: T1177. Size: S (part 1), M 
 ## Owner
 
 - [x] 2026-11-27 — The two Kitsumkalum-mouth braids (2.26 km) answer as the Kitsumkalum's, in 0.10.0: "Yes, in 0.10.0 (Recommended)".
+- [x] 2026-11-27 — How the braids become the Kitsumkalum's, shown A (DFO places only) beside B (the braids become Kitsumkalum water: Class II all year, the Steelhead Stamp Aug 7-May 31, steelhead closed May 15-Jun 15, the Sunday closure): "B: the braids become Kitsumkalum water".
 - [ ] 2026-11-27 — Part 2 places and the "mainstem waters" side-channel question: decide per place once its picture is shown.

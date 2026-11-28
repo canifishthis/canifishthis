@@ -57,6 +57,7 @@ ATLAS_INPUTS: dict[str, str] = {
     "curated:waters.tidal": "gauge_cuts → tidal cuts and mouth aliases (`splits.tidal.load`)",
     "curated:waters.name_variants": "build_graph / add_waters (`graph.names.load_name_variants`)",
     "curated:waters.found_names": "add_waters → registry labels (`registry.mined`)",
+    "curated:waters.line_owners": "build_graph / add_waters (`graph.names.apply_line_owners`, T1259)",
     "curated:waters.added_lakes": "load_fwa (`waters.added_lakes.ingest.merge`)",
     "curated:waters.added_streams": "load_fwa (`waters.added_streams.build_dataset.to_graph_inputs`)",
     "curated:waters.areas": "cut_areas (`splits.area_splits.load_area_split_defs`) + outside_items",
