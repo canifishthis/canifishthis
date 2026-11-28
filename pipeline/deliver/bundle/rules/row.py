@@ -98,6 +98,19 @@ _NOT_CONDITIONS = frozenset({
 THREE_VALUED_FLAGS = frozenset({"includes_tributaries"})
 
 
+def tributary_row(entry_id: str, r) -> tuple | None:
+    """(T679 #12) One `rule_tributary` row from one catalogue rule (`CatalogueRule`), or None for a rule that states
+    no tributary scope of its own. `includes_tributaries` keeps all three values (AGENTS 9), here and (T1273) in
+    `conditions` too, which keeps a rule's own false; this table stays the export's source for the two derived
+    lists (`tributaries_only`, `tributary_excludes`) and for closures.py's read of the own value."""
+    own = r.includes_tributaries
+    if own is None and not r.tributaries_only and not r.tributary_excludes:
+        return None
+    return (entry_id, r.rule_id, None if own is None else int(bool(own)), int(bool(r.tributaries_only)),
+            json.dumps(list(r.tributary_excludes), separators=(",", ":"), sort_keys=True)
+            if r.tributary_excludes else None)
+
+
 def _rule_row(entry_id: str, raw: dict, uncertain: bool, siblings=None, zones=None,
               rules_of=None, unresolved: str | None = None, place_of=None, entries=None,
               closures=None, regions=None, blankets=None, caps=None):

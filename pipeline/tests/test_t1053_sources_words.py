@@ -121,3 +121,37 @@ def test_t1273_a_rule_that_inherits_the_rows_star_still_covers_its_tributaries()
     assert "includes_tributaries" not in _through_bundle_and_export("r4:goat_river@4-6", ban)["fields"]
     assert _applies(ban) == (f"This water’s own row in the {BOOK_TITLE}: Goat River. "
                              "Covers Goat River and its tributary streams (✱, p.4).")
+
+
+def test_t1273_a_lift_whose_own_line_has_no_tributaries_keeps_its_lift_and_says_nothing_of_them():
+    """Mitchell River r3x's shape (Bella Coola r5's type): a rule that lifts a zone closure, its own `includes_tributaries: false`, under a ✱ row. The
+    composed line keeps "It lifts …" and has no "Covers … tributary streams" sentence. (The lifted rule is handed to
+    `applies_here` as the export's `exempts` entry, which is a column of its own and not the flag under test.)"""
+    lift = {"rule_id": "goat_river.r3x", "type": "retention_limit", "species": ["RB"], "take": 2,
+            "verbatim": "Spring stream closure lifted — downstream of Goat Lake", "extents": [{"op": "whole"}],
+            "includes_tributaries": False}
+    x = _through_bundle_and_export("r4:goat_river@4-6", lift)
+    assert x["fields"]["includes_tributaries"] is False
+    x["fields"]["exempts"] = [{"entry_id": "z4:stream_closures", "rule_id": "z4.r1"}]
+    doc = {"entries": {"r4:goat_river@4-6": GOAT_ROW, "z4:stream_closures": {"kind": "table", "name": "Region 4"}},
+           "rules": {"z4:stream_closures::z4.r1": {"label": "No fishing in streams, Apr 1-Jun 30"}}, "waters": {}}
+    say, _ = applies_here(x, doc)
+    assert say == (f"This water’s own row in the {BOOK_TITLE}: Goat River. "
+                   "It lifts “No fishing in streams, Apr 1-Jun 30” (Region 4) here.")
+
+
+@pytest.mark.parametrize("own", [True, False, None])
+def test_t1273_the_two_carriers_of_a_rules_own_tributary_flag_agree(own):
+    """The own value lives twice: `rule.conditions` (read by the export's `fields` and the card words) and
+    `rule_tributary.includes_tributaries` (read by export/closures.py). Both built by the real functions from one
+    catalogue rule, they must say the same for True, False and unset, so they cannot drift."""
+    from pipeline.deliver.bundle.rules.row import tributary_row
+    from pipeline.regs.parsing.catalogue import CatalogueRule
+    raw = {"rule_id": "goat_river.r9", "type": "retention_limit", "species": ["RB"], "take": 2,
+           "verbatim": "trout daily quota = 2", "extents": [{"op": "whole"}]}
+    if own is not None:
+        raw["includes_tributaries"] = own
+    in_conditions = _through_bundle_and_export("r4:goat_river@4-6", raw)["fields"].get("includes_tributaries")
+    t = tributary_row("r4:goat_river@4-6", CatalogueRule.model_validate(raw))
+    in_table = None if t is None or t[2] is None else bool(t[2])
+    assert in_conditions == own and in_table == own

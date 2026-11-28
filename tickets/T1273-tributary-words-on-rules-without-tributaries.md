@@ -1,10 +1,10 @@
 # T1273 — 19 rules say "Covers X and its tributary streams" though their own line has no tributaries
 
-Status: IN PROGRESS — built on `fix/T1273-own-no-tributaries-reaches-the-words` (705a59bd2), measured; not merged until the owner says when; owner: see ## Owner
+Status: IN PROGRESS — fix built (705a59bd2), second-reviewed, PR open on `fix/T1273-own-no-tributaries-reaches-the-words`. A regression from T1053, never shipped (0.9.0 lacks the sentence; the held 0.10.0 candidate had it). The owner is informed; no question is open. left (Claude): merge the PR.
 
 | id | title | status | commits | what's left |
 |---|---|---|---|---|
-| T1273 | 19 rules say "Covers X and its tributary streams" though their own line has no tributaries | IN PROGRESS | 705a59bd2 | built and measured (exactly the 19 lines change, no answer); merge waits for the owner's 0.10.0-or-after |
+| T1273 | 19 rules say "Covers X and its tributary streams" though their own line has no tributaries | IN PROGRESS | 705a59bd2 | built, measured (exactly the 19 lines change, no answer), reviewed; regression from T1053, never shipped; merging with its PR (left (Claude): merge) |
 
 Source: lane T679-#12, 2026-11-28 (found while making the bundle carry each rule's tributary scope); measured on the
 baseline side build r-5e5e0369ce6d (origin/main a18c6168b + the T1199 fix).
@@ -70,6 +70,8 @@ answer changed"; verdicts.sqlite and status_index.bin byte-identical; the export
 `includes_tributaries: false` on 43 rules and the guide's generated `fields_used` counts move (6); in the release only
 the `water` files and the manifest change. The mini release is unchanged (`mini_release --check` ok).
 
+Follow-up (named, not built): the own value now lives in two places, `rule.conditions.includes_tributaries` (export fields, card words) and `rule_tributary.includes_tributaries` (export/closures.py); one should read the other. `test_t1273_the_two_carriers_of_a_rules_own_tributary_flag_agree` pins them equal for True, False and unset until then.
+
 ## Acceptance
 answers_diff against the release before: exactly the 19 `applies` lines change, "wording only", no answer; the two pins
 above red under their mutation; export diff = the `fields` key on the 43 rules + the 19 sentences.
@@ -80,7 +82,4 @@ Size: S.
 Depends: none (option b depends on T679 #12). Owner: yes (when). Default: after 0.10.0.
 
 ## Owner
-- [ ] 2026-11-28 — 19 rules wrongly add "Covers X and its tributary streams" to the main river's card, 4 of them
-  rules that OPEN or ALLOW (Mitchell's lifted spring closure, Fulton's "angling permitted", Bella Coola's 2-a-day keep);
-  the creeks' own cards, the map and the answers are right. Fix it in 0.10.0 (a small wording change, a re-cut, the 19 sentences shown before/after) or
-  after 0.10.0 (Default: after)?
+- [x] 2026-11-28 — informed, no question open: a regression from T1053 that never shipped (0.9.0 lacks the sentence), fixed and merged without a ruling.

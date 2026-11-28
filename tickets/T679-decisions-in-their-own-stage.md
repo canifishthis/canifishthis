@@ -1,6 +1,6 @@
 # T679 — Each decision in its own stage (everything but tidal)
 
-Status: IN PROGRESS — D2 and D6 built in c9488453c (owner 2026-11-12); D1 ponds, D3 nearer row, D4 word-read guard, D5 DFO confluence cuts and gauge placement #4 built in 9b0d6f4ae (+ f7f4fcfee), promoted with `full_t678b` (a5fe40636) and released in r-0a9930fb8826; the 11 other-line gauge cuts decided (RULINGS P49, T682); plan steps 1–3 done (#9 e1f1a268c, #2 8bc6eadbe, #4 b3a3938de); #14 done (9b0d6f4ae); lane L7 2026-11-20: #10 ece8f7a29, #11 7774bcbab, #12 rulings a493cf12d (+ 59e9589cc), #13 61f2bd774, step-10 code 5339c18ef (#1 and #6 behind switches, #15) and 94842bada (#18 dead code), all proved no output change; #12 derive from data in the 0.10.0 re-cut (owner 2026-11-27); left (Claude): wave 4 flips #1/#6 with the atlas rebuild and diffs, #18's continuation / places / part point, and L8's steps 5 (#8, #16, #17)
+Status: IN PROGRESS — D2 and D6 built in c9488453c (owner 2026-11-12); D1 ponds, D3 nearer row, D4 word-read guard, D5 DFO confluence cuts and gauge placement #4 built in 9b0d6f4ae (+ f7f4fcfee), promoted with `full_t678b` (a5fe40636) and released in r-0a9930fb8826; the 11 other-line gauge cuts decided (RULINGS P49, T682); plan steps 1–3 done (#9 e1f1a268c, #2 8bc6eadbe, #4 b3a3938de); #14 done (9b0d6f4ae); lane L7 2026-11-20: #10 ece8f7a29, #11 7774bcbab, #12 rulings a493cf12d (+ 59e9589cc), #13 61f2bd774, step-10 code 5339c18ef (#1 and #6 behind switches, #15) and 94842bada (#18 dead code), all proved no output change; #12 derive from data in the 0.10.0 re-cut (owner 2026-11-27), built in 75d9f6ace (export byte-identical, guide +Elk, see Done); left (Claude): wave 4 flips #1/#6 with the atlas rebuild and diffs, #18's continuation / places / part point, and L8's steps 5 (#8, #16, #17)
 
 | id | title | status | commits | what's left |
 |---|---|---|---|---|
@@ -41,6 +41,11 @@ Owner 2026-11-20 11:11 (dialog): #1 and #6 **"Turn both on (Recommended)"** in t
   polygon, `panels.ownerless_pond`; fe5dbbe7d): moved pairs 611 (118 gauges, 78 waters), lead sets changed 0; #16 paint/6
   `SectionAccess.mostly`, on the T686 switch (`packed.SHIP_PACKED_FORMATS`; measured ON: 3,597 sections, +282 B gz).
 - Test hygiene (lane LF, 0043ad017): `test_export_codec.py` big-export compare uses `_same`.
+- #12 (owner 2026-11-27 "derive from data but in 0.10"; 75d9f6ace): the bundle's `rule_tributary` (each rule's own
+  tributary scope, three-valued; 162 rows, +36 KB) and `export.closures.tributary_scope_sets`; both id lists gone. Measured
+  2026-11-28 against the baseline r-5e5e0369ce6d: export, answers, verdicts, status index and all 58 release files
+  byte-identical, answers_diff empty; the guide differs in two `key_on` texts and the Elk River's tributaries joining
+  `excepted_rivers_creeks_stay_closed` (RULINGS T7, missed by the old Squamish-only list).
 
 ## Left
 Findings still open (from the audit table: # | What | Where | Runs in | Belongs in | Risk):
@@ -60,7 +65,7 @@ Findings still open (from the audit table: # | What | Where | Runs in | Belongs 
   3 dp vs bundle 4 dp), one "where is it" point per part (`part_geo.mid_sid` vs `release/part_line.py`).
 - #12 LEFT: `UNDRAWN_PART_TRIBUTARIES` / `EXCEPTED_RIVERS_CREEKS_CLOSED` need the bundle to carry a rule's own tributary
   scope (it drops `includes_tributaries: false`) and `tributary_excludes` (kept out on purpose, `bundle/rules/row.py:84`)
-  — the owner, 2026-11-27: derive from data, in the 0.10.0 re-cut (## Owner).
+  — the owner, 2026-11-27: derive from data, in the 0.10.0 re-cut (## Owner). BUILT (75d9f6ace, see Done).
 - Touches tidal (for T678, not planned here): the reach applies outside and not-fishing first, then tidal
   (`reach/build.py:455-462`); `bundle/access.py` measures against tile geometry, which drops tidal pieces.
 
