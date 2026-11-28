@@ -1861,11 +1861,24 @@ def build_registry(b: _Build) -> None:
     # `pipeline.atlas.registry.build.pinned_by_override`.
     registry, _info = water_registry(b, graph)
     # (T1259) the assigned lines bring their geometry, not their old water's ids (`scrub_line_owner_refs`); every line
-    # the line owners assign landed in its water's item (none pruned, none left behind), no id answers to two waters
-    from pipeline.atlas.graph.names import check_line_owners, scrub_line_owner_refs
+    # the line owners assign landed in its water's item (none pruned, none left behind), no id answers to two waters.
+    # (review L1) The scrub runs AFTER `water_registry`'s inner passes (flowing folds, lake parts, MU sets): none of
+    # them reads `ref_ids` to decide anything (they group by item id and section), and the matcher, the only reader
+    # that resolves a ref to a water (`build_id_index`), reads the registry as written here.
+    from pipeline.atlas.graph.names import (check_line_owners, inflows_to_assigned_lines, scrub_line_owner_refs,
+                                            unnamed_neighbours_of_assigned_lines)
     _dropped = scrub_line_owner_refs(registry, b._owners, graph)
     print(f"  line owners: {len(_dropped)} inherited id(s) kept off their new water: {', '.join(_dropped) or '-'}")
     check_line_owners(registry, b._owners, graph)
+    # (review M2) water flowing into an assigned line becomes its new water's tributary: named, every build
+    _in = inflows_to_assigned_lines(graph)
+    print(f"  line owners: {len(_in)} blue line(s) flow into an assigned line (their new water's tributaries): "
+          + (", ".join(f"{a} into {b_}" for a, b_ in _in) or "-"))
+    # (review L2) a same-code channel beside an assigned line is named by its neighbours (`follow_connections`): what
+    # each ended up called, every build
+    _nb = unnamed_neighbours_of_assigned_lines(graph)
+    print(f"  line owners: {len(_nb)} same-code line(s) beside an assigned line: "
+          + (", ".join(f"{a} ({nm})" for a, nm in _nb) or "-"))
     print(f"  registry: {_info['named']} named items")
     print(f"  + {_info['lakes']} isolated named lake item(s) + {_info['wetlands']} named wetland item(s)")
     print(f"  + {_info['curated_wbk']} curated-only wbk item(s) (named via name_variants)")

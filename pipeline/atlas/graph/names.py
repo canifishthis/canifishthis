@@ -263,6 +263,48 @@ def load_line_owners(path) -> list[dict]:
     return list(d["owners"])
 
 
+#: (T1259) the note a line's name tuple carries when the line owners gave it to its water: the walk reads it
+#: (`tributaries.AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER`), so the graph says which lines were assigned
+LINE_OWNER_NOTE = "line_owners.json (T1259)"
+
+
+def is_assigned_line(node) -> bool:
+    """(T1259) Was this graph node given to its water by `waters/line_owners.json` (`apply_line_owners`)?"""
+    return any(str(getattr(t, "note", "") or "").startswith(LINE_OWNER_NOTE) for t in getattr(node, "name_tuples", ()) or ())
+
+
+def inflows_to_assigned_lines(graph: StreamGraph) -> list[tuple[str, str]]:
+    """(T1259, review M2) the blue lines whose mouth lies on an assigned line, as (blk, the assigned line's blk): water
+    flowing into an assigned line becomes its NEW water's tributary (the creek at the Kitsumkalum's braids: his pick
+    "Kitsumkalum tributary"). Printed by every build, so an entry's author sees what an assignment brings with it."""
+    out = set()
+    for nid, n in graph.nodes.items():
+        if not is_assigned_line(n):
+            continue
+        for ei in graph.up_adj.get(nid, ()):
+            src = graph.nodes.get(graph.edges[ei].from_node)
+            if src is not None and src.blk and src.blk != n.blk and not is_assigned_line(src):
+                out.add((str(src.blk), str(n.blk)))
+    return sorted(out)
+
+
+def unnamed_neighbours_of_assigned_lines(graph: StreamGraph) -> list[tuple[str, str]]:
+    """(T1259, review L2) every line touching an assigned line that carries the same watershed code (the channels
+    `follow_connections` names after their neighbours: an assignment can change what such a channel is called), with
+    the name it ended with, as (blk, name). Printed by every build."""
+    out = set()
+    for nid, n in graph.nodes.items():
+        if not is_assigned_line(n):
+            continue
+        for ei in list(graph.up_adj.get(nid, ())) + list(graph.down_adj.get(nid, ())):
+            e = graph.edges[ei]
+            other = graph.nodes.get(e.from_node if e.to_node == nid else e.to_node)
+            if (other is not None and other.blk and other.blk != n.blk and not is_assigned_line(other)
+                    and other.wsc and other.wsc == n.wsc):
+                out.add((str(other.blk), other.display_name or "(unnamed)"))
+    return sorted(out)
+
+
 def line_owner_blks(owners) -> set[str]:
     """The blue lines the line owners assign (named, so the naming and the prune leave them to their water)."""
     return {str(b) for e in owners or () for b in e["blks"]}
@@ -307,7 +349,7 @@ def apply_line_owners(graph: StreamGraph, owners: list[dict], name_variants: lis
         best = own.get((gid, e["name"]))
         if best is None:
             raise ValueError(f"line owners: water {e['water']} goes by no name {e['name']!r} on its own lines")
-        tup = replace(best, note=f"line_owners.json (T1259); {best.note}".rstrip("; "), gnis_id=gid)
+        tup = replace(best, note=f"{LINE_OWNER_NOTE}; {best.note}".rstrip("; "), gnis_id=gid)
         for b in e["blks"]:
             nids = by_blk.get(str(b))
             if not nids:

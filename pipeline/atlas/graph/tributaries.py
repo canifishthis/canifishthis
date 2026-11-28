@@ -34,6 +34,7 @@ import functools
 from dataclasses import dataclass, field
 from typing import Iterable
 
+from pipeline.atlas.graph.names import is_assigned_line
 from pipeline.common.models import NodeKind, StreamGraph
 from pipeline.common.names import key as name_key
 from pipeline.common import fwa_edge_types
@@ -1419,9 +1420,28 @@ MOUTH_SEEDS_ONLY_AT_THE_CUT = True
 THE_WALK_NEVER_ENTERS_A_PARENT = True
 
 
+#: AN ASSIGNED LINE NEVER LEADS INTO ITS OLD WATER (T1259, review M1; the owner's "a stream is not a tributary of
+#: itself"). A line `waters/line_owners.json` gives to another water (the Kitsumkalum's mouth braids, FWA's Skeena side
+#: channels) still carries its OLD water's watershed code. Read as one of the reach's codes, that code would switch off
+#: `THE_WALK_NEVER_ENTERS_A_PARENT` for the old river, and only the order guard would stand between a whole-water
+#: "including tributaries" walk and the whole old river (FWA draws some side channels at their river's order). So:
+#:  - an assigned piece's code is never one of the reach's codes (`_reach_codes`): the old river is the parent again;
+#:  - from an assigned piece, the walk never steps into a piece carrying that piece's own code or a code above it (the
+#:    old water, at any order: `_refusal`, `RECEIVING_RIVER`). Water whose code EXTENDS it (a creek flowing into the
+#:    assigned line) is a genuine tributary and is climbed: it becomes the new water's tributary.
+#: A piece is "assigned" by its name tuple (`names.is_assigned_line`), so the graph alone says it.
+AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER = True
+
+
+def _assigned(node) -> bool:
+    return node is not None and is_assigned_line(node)
+
+
 def _reach_codes(graph: StreamGraph, reach) -> frozenset[str]:
-    """The watershed codes the reach's own pieces carry."""
-    return frozenset(n.wsc for r in reach if (n := graph.nodes.get(r)) is not None and n.wsc)
+    """The watershed codes the reach's own pieces carry (never an assigned piece's: its code is its OLD water's,
+    `AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER`)."""
+    return frozenset(n.wsc for r in reach if (n := graph.nodes.get(r)) is not None and n.wsc
+                     and not (AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER and _assigned(n)))
 
 
 @functools.lru_cache(maxsize=1024)
@@ -1453,6 +1473,9 @@ def _refusal(graph: StreamGraph, src: str, dst: str, codes: frozenset[str], *,
     s, d = graph.nodes.get(src), graph.nodes.get(dst)
     if THE_WALK_NEVER_ENTERS_A_PARENT and _receives(s, codes):
         return RECEIVING_RIVER
+    if (AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER and _assigned(d) and s is not None and not _assigned(s)
+            and s.wsc and d.wsc and (s.wsc == d.wsc or wsc.is_strictly_below(d.wsc, s.wsc))):
+        return RECEIVING_RIVER                 # the assigned line's old water, at any order
     if not by_order or _code_says_tributary(s, d):
         return None
     if guarded and _order_breaks(s, d) and not _is_main_outlet(graph, src, dst):

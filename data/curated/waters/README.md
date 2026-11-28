@@ -9,7 +9,7 @@ the map only after the next atlas build (`pipeline build --atlas --promote`).
 | `name_variants.json` | authored | hand | atlas registry (names on FWA waters) |
 | `found_names.json` | promoted | `pipeline.tools.mined_names` / write-through (Names marks) | atlas registry |
 | `found_name_calls.json` | authored | hand (owner calls on single found-name candidates) | `pipeline.tools.mined_names` |
-| `line_owners.json` | authored (T1259: blue lines given to another water, each with its source words) | `curated_write` (A2) | atlas (`graph.names.apply_line_owners`, the name-variant mechanism with validation; `check_line_owners` after the registry) |
+| `line_owners.json` | authored (T1259: blue lines given to another water, each with its source words) | hand (like `name_variants.json`) | atlas (`graph.names.apply_line_owners`, the name-variant mechanism with validation; `check_line_owners` after the registry) |
 | `area_closures.json` | authored | hand | atlas (cuts streams at area edges); tiles |
 | `added_areas.geojson` | authored | hand-drawn polygons | an `area_closures.json` def with `file` |
 | `added_lakes.geojson` | authored | hand-drawn polygons | atlas |

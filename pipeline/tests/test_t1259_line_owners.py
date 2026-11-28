@@ -81,6 +81,11 @@ def test_the_loader_refuses_by_name(tmp_path):
         load({"_about": "x", "owners": _owners() + _owners(name="Other")})
     with pytest.raises(ValueError, match="`_about` and `owners`"):
         load({"owners": []})
+    # (review L3) a line given back to its own water, and a blue line key that is not one
+    with pytest.raises(ValueError, match="`water` and `from` are both gnis:2936"):
+        load({"_about": "x", "owners": _owners(water=f"gnis:{SK}")})
+    with pytest.raises(ValueError, match="blue line '36022x' is not a blue line key"):
+        load({"_about": "x", "owners": _owners(blks=["36022x"])})
 
 
 def test_the_graph_step_refuses_by_line():
@@ -98,6 +103,15 @@ def test_the_graph_step_refuses_by_line():
     g.nodes["360222215:0"] = replace(n, name_tuples=(NameTuple("Elsewhere", NameSource.override, gnis_id="7"),
                                                      *n.name_tuples))
     with pytest.raises(ValueError, match="(would move it elsewhere|belongs to gnis:7)"):
+        N.apply_line_owners(g, _owners())
+    # (review L3) an override name of the `from` water's OWN gnis passes the "belongs to" question and is the case
+    # that reaches "would move it elsewhere"
+    g = _graph()
+    n = g.nodes["360222215:0"]
+    g.nodes["360222215:0"] = replace(n, name_tuples=(NameTuple("Skeena River", NameSource.override, gnis_id=SK),
+                                                     *n.name_tuples))
+    with pytest.raises(ValueError, match="blue line 360222215 carries an override name of gnis:2936 .* would move it "
+                                         "elsewhere"):
         N.apply_line_owners(g, _owners())
 
 
@@ -217,3 +231,101 @@ def test_the_loop_pass_keeps_every_assigned_line():
     mini = Path(__file__).parent / "fixtures" / "mini" / "curated" / "waters" / "loop_exemptions.json"
     keeps = loop_keeps(mini, {"a line owner": files["a line owner"]}, {})
     assert keeps["360222216"] == ["a line owner"] and keeps["360222215"] == ["a line owner"]
+
+
+# ---- (review M1) A STREAM IS NOT A TRIBUTARY OF ITSELF: the assigned line's old water is never its new water's tributary
+
+def _assigned_world():
+    """The worst case for the walk: the braid B (assigned to the Kitsumkalum) is drawn at the SKEENA's order (7) and
+    carries the Skeena's code, so neither the parent rule (its code is one of the reach's) nor the order guard (not
+    bigger) would stop a climb into the Skeena. Flow: the Skeena above (SU) splits into the braid at its top and its
+    main line (SM); the Kitsumkalum (K, order 5) and a creek (C, the Skeena's code extended) join the braid; a Skeena
+    creek (ST) joins the Skeena above; a Kitsumkalum creek (KT) joins the Kitsumkalum.
+
+        ST:0 -> SU:0 -> B:0 -> SM:0          K:0 -> B:0        C:0 -> B:0        KT:0 -> K:0
+                SU:0 ------------> SM:0
+    """
+    import dataclasses
+    from pipeline.tests.test_reach_tributaries import _g, _w
+    mark = (NameTuple("Kitsumkalum River", NameSource.gazette, gnis_id=KI, note=f"{N.LINE_OWNER_NOTE}; x"),)
+    nodes = [_w("SU:0", order=7, wsc=WSC_SK), _w("SM:0", order=7, wsc=WSC_SK),
+             dataclasses.replace(_w("B:0", order=7, wsc=WSC_SK), name_tuples=mark),
+             _w("K:0", order=5, wsc=WSC_KI), _w("KT:0", order=1, wsc=WSC_KI + "-111111"),
+             _w("C:0", order=1, wsc=WSC_SK + "-100000"), _w("ST:0", order=2, wsc=WSC_SK + "-200000")]
+    edges = [("ST:0", "SU:0", "confluence"), ("SU:0", "B:0", "confluence"), ("SU:0", "SM:0", "continuation"),
+             ("B:0", "SM:0", "confluence"), ("K:0", "B:0", "confluence"), ("C:0", "B:0", "confluence"),
+             ("KT:0", "K:0", "confluence")]
+    return _g(nodes, edges)
+
+
+def test_the_new_waters_walk_never_climbs_its_assigned_lines_old_water():
+    """The Kitsumkalum's walk (its line and the braid) takes its creek and the creek on the braid, never the Skeena
+    above the braid or the Skeena's creek, though the braid is at the Skeena's order. The Skeena's own walk is as
+    before: the braid and all that joins it are its tributaries."""
+    from pipeline.atlas.graph import tributaries as T
+    g = _assigned_world()
+    assert N.is_assigned_line(g.nodes["B:0"]) and not N.is_assigned_line(g.nodes["SU:0"])
+    assert T.tributaries_of_reach(g, {"K:0", "B:0"}) == {"KT:0", "C:0"}
+    assert T._reach_codes(g, {"K:0", "B:0"}) == frozenset({WSC_KI})         # the braid's (the Skeena's) code is not one
+    assert T._refusal(g, "SU:0", "B:0", frozenset({WSC_KI})) == T.RECEIVING_RIVER
+    assert T._refusal(g, "C:0", "B:0", frozenset({WSC_KI})) is None
+    assert T.tributaries_of_reach(g, {"SU:0", "SM:0"}) == {"ST:0", "B:0", "K:0", "KT:0", "C:0"}
+
+
+def test_mutation_pin_without_the_policy_the_kitsumkalum_climbs_the_skeena(monkeypatch):
+    """MUTATION (`AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER` off): the braid's code is the reach's again and the
+    order guard does not stop a same-order step, so the Kitsumkalum's walk takes the Skeena above and its creek."""
+    from pipeline.atlas.graph import tributaries as T
+    monkeypatch.setattr(T, "AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER", False)
+    assert T.tributaries_of_reach(_assigned_world(), {"K:0", "B:0"}) >= {"SU:0", "ST:0"}
+
+
+def test_the_reach_gate_refuses_the_old_water_as_a_tributary_by_name():
+    """(review M1 b) `reach.build.line_owner_gate`: a binding of an entry matching the new water whose tributary
+    sections hold the old water (any piece of the assigned line's code outside the new water's item), or a DFO place
+    of the new water with such a section, stops the reach run by name; the sound case passes."""
+    from types import SimpleNamespace as NS
+    from pipeline.atlas.reach.build import LineOwnerGateError, line_owner_gate
+    g = _assigned_world()
+    reg = {f"gnis:{KI}": NS(section_ids=("K:0", "B:0"), name="Kitsumkalum River")}
+    ents = {"r6:kit": {"matched": [f"gnis:{KI}"]}, "r6:sk": {"matched": [f"gnis:{SK}"]}}
+    ok = [NS(entry_id="r6:kit", rule_id="kit.r5", via_tributary=("KT:0", "C:0")),
+          NS(entry_id="r6:sk", rule_id="sk.r1", via_tributary=("SU:0", "B:0", "K:0"))]    # the Skeena's own: fine
+    line_owner_gate(g, reg, ents, ok, [{"location_id": "6:kitsumkalum-river:whole", "sections": ["K:0", "B:0"]},
+                                       {"location_id": "6:skeena-river:whole", "sections": ["SU:0", "K:0"]}])
+    bad = ok + [NS(entry_id="r6:kit", rule_id="kit.r2", via_tributary=("KT:0", "SU:0"))]
+    with pytest.raises(LineOwnerGateError, match=r"r6:kit kit\.r2: 1 section\(s\) of gnis:3942's .*SU:0"):
+        line_owner_gate(g, reg, ents, bad)
+    with pytest.raises(LineOwnerGateError, match=r"dfo 6:kitsumkalum-river:whole: 1 section.*SM:0"):
+        line_owner_gate(g, reg, ents, ok, [{"location_id": "6:kitsumkalum-river:whole", "sections": ["K:0", "SM:0"]}])
+    with pytest.raises(LineOwnerGateError, match="has assigned lines but no registry item"):
+        line_owner_gate(g, {}, ents, ok)
+
+
+@pytest.mark.needs_bundle
+def test_no_skeena_section_takes_a_kitsumkalum_row_or_place(request):
+    """(review M1 c) on the bundle under test: no section of the Skeena River (gnis:2936) carries a Kitsumkalum River
+    row (r6:kitsumkalum_kalum_river) or lists a DFO place of the Kitsumkalum River, while the Kitsumkalum's own sections
+    carry both (so the queries see what they look for)."""
+    import sqlite3
+    from pipeline.deliver import salmon as SAL
+    from pipeline.tests import under_test as U
+    db = sqlite3.connect(str(U.bundle(request)))
+    try:
+        def of(item):
+            sids = {s for (s,) in db.execute("SELECT s.sid FROM item i JOIN item_section s ON i.ord = s.ord "
+                                             "WHERE i.item_id = ?", (item,))}
+            assert sids, f"{item} has no sections in this bundle"
+            rows = {e for (e,) in db.execute(
+                "SELECT DISTINCT rs.entry_id FROM item i JOIN item_section s ON i.ord = s.ord JOIN section_ruleset sr "
+                "ON sr.sid = s.sid JOIN ruleset rs ON rs.set_id = sr.set_id WHERE i.item_id = ?", (item,))}
+            places = {l for s, c in secs if s in sids for l in payload["chains"][c]["l"]}
+            return ({e for e in rows if e.startswith("r6:kitsumkalum_kalum_river")},
+                    {l for l in places if (payload["p"].get(l) or {}).get("water") == "Kitsumkalum River"})
+        payload, secs = SAL.read_bundle(db)
+        sk_rows, sk_places = of(f"gnis:{SK}")
+        ki_rows, ki_places = of(f"gnis:{KI}")
+        assert ki_rows and ki_places
+        assert (sk_rows, sk_places) == (set(), set())
+    finally:
+        db.close()

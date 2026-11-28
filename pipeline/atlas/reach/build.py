@@ -1857,6 +1857,46 @@ def scope_gate(bindings) -> None:
                              + "\n  ".join(f"{e}: {n} rule(s)" for e, n in sorted(held.items())))
 
 
+class LineOwnerGateError(RuntimeError):
+    """A water's rule or DFO place reaches its assigned lines' OLD water through the tributary walk (`line_owner_gate`)."""
+
+
+def line_owner_gate(graph, registry, entries, bindings, dfo_rows=()) -> None:
+    """(T1259, review M1 b) THE OLD WATER IS NEVER THE NEW WATER'S TRIBUTARY: for every water that `waters/line_owners.json`
+    gave lines to (the graph's assigned pieces, `names.is_assigned_line`), no section of the lines' OLD water (every
+    piece carrying an assigned piece's own watershed code, outside the new water's item: the old river's main line and
+    its same-code channels) may take a rule of the new water's entries through the tributary walk (`via_tributary`),
+    or a section of a DFO place named for the new water. Raises naming each; the walk's own refusal is
+    `tributaries.AN_ASSIGNED_LINE_NEVER_LEADS_INTO_ITS_OLD_WATER`, this is the check that it held."""
+    from pipeline.atlas.graph.names import LINE_OWNER_NOTE, is_assigned_line
+    codes: dict[str, set] = {}
+    for n in graph.nodes.values():
+        if is_assigned_line(n) and n.wsc:
+            t = next(t for t in n.name_tuples if str(t.note or "").startswith(LINE_OWNER_NOTE))
+            codes.setdefault(f"gnis:{t.gnis_id}", set()).add(n.wsc)
+    bad = []
+    for new, cs in sorted(codes.items()):
+        it = registry.get(new)
+        if it is None:
+            raise LineOwnerGateError(f"line owners: {new} has assigned lines but no registry item")
+        own = set(it.section_ids)
+        old = {nid for nid, n in graph.nodes.items() if n.wsc in cs and nid not in own and not is_assigned_line(n)}
+        for b in bindings:
+            hit = old & set(getattr(b, "via_tributary", ()) or ())
+            if hit and new in ((entries.get(b.entry_id) or {}).get("matched") or ()):
+                bad.append(f"{b.entry_id} {b.rule_id}: {len(hit)} section(s) of {new}'s assigned lines' old water "
+                           f"through the tributary walk, e.g. {sorted(hit)[:3]}")
+        slug = "-".join(str(it.name).lower().split())
+        for row in dfo_rows or ():
+            hit = old & set(row.get("sections") or ())
+            if hit and str(row.get("location_id", "")).split(":")[1:2] == [slug]:
+                bad.append(f"dfo {row['location_id']}: {len(hit)} section(s) of {new}'s assigned lines' old water, "
+                           f"e.g. {sorted(hit)[:3]}")
+    if bad:
+        raise LineOwnerGateError("the old water of an assigned line became its new water's tributary:\n  "
+                                 + "\n  ".join(bad))
+
+
 class StraddleGateError(RuntimeError):
     """A braid still straddles a cut after the atlas swept it (`straddle_gate`)."""
 
