@@ -517,6 +517,26 @@ def page_for(pages: Sequence[Page], saved_at: Optional[str]) -> Optional[Page]:
 #: (its window is not asked: a v2 chart may be re-marked after the switch); one that does not is placed by the page
 #: windows. Any other value is refused by name.
 POSE_RUN = "pose_run"
+#: EVERY field a mark may carry (the 2026-11-28 04:25 export's, plus POSE_RUN), and every field of its `adjust`: a mark
+#: is the owner's decision, so a field the freeze does not know is REFUSED by name, never ignored (header fields of the
+#: export other than those read are not his decisions and stay unread)
+MARK_FIELDS = frozenset({"verdict", "note", "saved_at", "chart_title", "lake_after", "adjusted", "adjust", POSE_RUN})
+ADJUST_FIELDS = frozenset({"turn_deg", "scale", "mirror", "dx_m", "dy_m", "on_lake", "overlap", "turn_total_deg",
+                           "scale_total_pct"})
+
+
+def unknown_mark_fields(marks: Mapping[str, Mapping]) -> List[str]:
+    """`chart: field` for every field a mark (or its adjust) carries that the freeze does not know."""
+    out = []
+    for cid, m in sorted(marks.items()):
+        out += [f"{cid}: {k}" for k in sorted(set(m) - MARK_FIELDS)]
+        a = m.get("adjust")
+        if a is not None:
+            if not isinstance(a, Mapping):
+                out.append(f"{cid}: adjust is {type(a).__name__}")
+            else:
+                out += [f"{cid}: adjust.{k}" for k in sorted(set(a) - ADJUST_FIELDS)]
+    return out
 
 
 def page_of_mark(pages: Sequence[Page], m: Mapping, exported_at: Optional[str]):
@@ -564,6 +584,10 @@ def freeze(frozen: dict, *, run_rows: Sequence[Mapping], run_label: str, run_sha
     rerun; (b) a newer survey of its lake accepted later (`SURVEYS_PER_LAKE`). A withdrawn row comes back only as a
     new decision: a `right` mark saved after the mark that withdrew it, under the pose rules of that freeze."""
     check_pages(pages, marks_exported_at)
+    bad = unknown_mark_fields(marks)
+    if bad:
+        raise ValueError("marks export: per-mark field(s) the freeze does not know (a mark is the owner's decision, so "
+                         "nothing in it is ignored): " + "; ".join(bad))
     run = _rows_by_sheet(run_rows)
     have = {r["sheet"]: r for r in frozen["placings"]}
     held: Dict[str, List[dict]] = defaultdict(list)

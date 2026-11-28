@@ -418,6 +418,18 @@ def test_the_04_25_export_s_closed_window_and_switch_time_are_read_as_written(tm
         P.export_time({"exported_at": "this morning"})
 
 
+def test_an_unknown_per_mark_field_is_refused_by_name(tmp_path):
+    env = _Env(tmp_path)
+    _zip(env.dir, "00000001.zip")
+    rows = [_row("00000001", "high")]
+    with pytest.raises(ValueError, match="00000001: confidence"):
+        _freeze(env, rows, marks={"00000001": {"verdict": "right", "confidence": "sure"}})
+    with pytest.raises(ValueError, match=r"00000001: adjust\.shear"):
+        _freeze(env, rows, marks={"00000001": {"verdict": "right_adjusted", "adjust": {"turn_deg": 0, "shear": 1}}})
+    # every field the 04:25 export carries, and pose_run, is known
+    assert P.unknown_mark_fields({"1": {k: None for k in P.MARK_FIELDS} | {"adjust": {k: 0 for k in P.ADJUST_FIELDS}}}) == []
+
+
 def test_a_wrong_mark_after_the_freeze_withdraws_the_row_and_it_never_ships(tmp_path):
     env = _Env(tmp_path)
     _zip(env.dir, "00000001.zip")
