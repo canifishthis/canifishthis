@@ -17,7 +17,7 @@ with the lake taken, until nothing changes); one that lands on a lake only coded
 off is kept, flagged `takes_a_coded_lake`. Two sheets on one lake are legitimate only when it is coded for both (the
 same chart code: Carp Lake and Mahood's two surveys today).
 
-Inputs: the 2001 vector zips, outside git (`--vec-dir`, its `zips/` as `fetch_vectors` writes them), the sheet list
+Inputs: the 2001 vector zips (`SOURCE.bathymetry_vectors`, hash-checked; `--vec-dir` for another folder), the sheet list
 (`fetch_vectors.sheets(SOURCE.fwa_gpkg)`: zip -> codes, titles), the chart proposals (`GENERATED.bathymetry /
 proposals.json`: code -> candidate lakes) and the FWA lakes (`SOURCE.fwa_gpkg`).
 Outputs, under `GENERATED.bathymetry` (machine output, rewritten freely):
@@ -89,16 +89,15 @@ def _wkt(g, tol: float) -> str:
     return wkt.dumps(g.simplify(tol), rounding_precision=1)
 
 
-def zip_names(zdir: Path, vec_dir: Path) -> List[str]:
-    """The zips to run, sorted. A missing or empty folder raises, naming it and the fetch command (an empty folder
-    must never overwrite good results with a 0-row refit.json)."""
-    how = f"fetch them with `python -m pipeline.bathymetry.fetch_vectors --out {vec_dir}`"
-    if not zdir.is_dir():
-        raise SystemExit(f"no vector zips at {zdir}: {how}")
-    zips = sorted(p.name for p in zdir.glob("*.zip"))
-    if not zips:
-        raise SystemExit(f"no vector zips in {zdir} (the folder is empty): {how}")
-    return zips
+def zip_names(vec_dir: Path) -> List[str]:
+    """(T1268: the zips' home is the source tier) The zips to run, sorted: every zip of the committed hash list, each
+    proved in `vec_dir` (`vectors.listed_paths`). A missing folder, a missing or differing zip raises naming it and the
+    fetch command (an empty folder must never overwrite good results with a 0-row refit.json)."""
+    from pipeline.bathymetry import vectors
+    try:
+        return sorted(vectors.listed_paths(vec_dir))
+    except vectors.VectorSourceError as e:
+        raise SystemExit(f"no vector zips to run: {e}") from e
 
 
 def _sheet_of(zpath: str, coverage: str, gap_m: float):
@@ -492,8 +491,9 @@ def main(argv=None) -> int:
     from pipeline.bathymetry.fetch_vectors import sheets as sheet_list
     from pipeline.common.curated import GENERATED, SOURCE
     ap = argparse.ArgumentParser(description="the wider fitter over every vector depth sheet (T1188)")
-    ap.add_argument("--vec-dir", type=Path, default=place_more.vec_dir(),
-                    help="the vector files' directory outside git (its zips/ as fetch_vectors writes them)")
+    ap.add_argument("--vec-dir", type=Path, default=None,
+                    help="the vector zips' folder (default SOURCE.bathymetry_vectors; every zip proved against the "
+                         "committed hash list)")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--only", nargs="*", help="zip names")
     ap.add_argument("--resummarise", action="store_true",
@@ -501,8 +501,9 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     if a.resummarise:
         return resummarise()
-    zdir = a.vec_dir.expanduser() / "zips"
-    zips = zip_names(zdir, a.vec_dir)
+    from pipeline.bathymetry import vectors
+    zdir = a.vec_dir.expanduser() if a.vec_dir else vectors.default_folder()
+    zips = zip_names(zdir)
     z2c, z2t = defaultdict(set), defaultdict(set)
     for s in sheet_list(SOURCE.fwa_gpkg):
         z2c[s["image_zip"]].add(s["wbid"])

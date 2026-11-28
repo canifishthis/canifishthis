@@ -88,6 +88,21 @@ def zip_sha256(name: str, *, folder: Optional[Path] = None, hashes: Optional[Pat
     return _checked(str(f), str(h), name)
 
 
+def default_folder() -> Path:
+    """THE home of the zips: `SOURCE.bathymetry_vectors` (git-ignored). Every reader's default (refit_all, place_more,
+    placed_contours); there is no other default."""
+    return _folder()
+
+
+def listed_paths(folder: Optional[Path] = None, hashes: Optional[Path] = None) -> Dict[str, Path]:
+    """zip name -> its proved path, for EVERY zip of the committed list, from `folder` (default the source home). A
+    missing folder, a missing or differing zip raises, naming it and the fetch command (never a partial set)."""
+    f = Path(folder) if folder else _folder()
+    if not f.is_dir():
+        raise VectorSourceError(f"{f}: the vector depth zips are not on this machine; fetch them: {FETCH}")
+    return {n: zip_path(n, folder=f, hashes=hashes) for n in sorted(read_hashes(hashes))}
+
+
 def check(folder: Optional[Path] = None, hashes: Optional[Path] = None) -> dict:
     """Every listed zip proved; returns {ok, missing, differ, unlisted} (names). Raises nothing: the caller decides."""
     f = Path(folder) if folder else _folder()

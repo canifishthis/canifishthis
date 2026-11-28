@@ -14,7 +14,7 @@ Per zip (all 510 fetched, the 6 compressed ones now read by `e00.decompress`), p
             loose), and the failures (no_shore, no_candidate, unreadable) with their reason
 Units per file are what its own words say (`e00.units_stated` over META + annotation), else `not stated`.
 
-    scripts/heavy.sh place 50 -- python -m pipeline.bathymetry.place_more     # 4 workers; ~/data-offgit/…/placing_all.json
+    scripts/heavy.sh place 50 -- python -m pipeline.bathymetry.place_more     # 4 workers; GENERATED.bathymetry/placing_all.json
 """
 from __future__ import annotations
 
@@ -27,10 +27,6 @@ from typing import Dict, List
 
 LICENCE_FLAG = "owner says OGL, catalogue says Access Only, unconfirmed"
 GAPS = (300.0, 1000.0)
-
-
-def vec_dir() -> Path:
-    return Path.home() / "data-offgit" / "bc-bathymetry-vectors"
 
 
 def grade(f: dict) -> str:
@@ -122,12 +118,16 @@ def main(argv=None) -> int:
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--only", nargs="*")
     a = ap.parse_args(argv)
-    d = vec_dir()
-    sheets = json.loads((d / "sheets.json").read_text())
+    from pipeline.bathymetry import vectors
+    d = vectors.default_folder()                 # (T1268) the zips' home in the source tier, hash-checked below
+    paths = vectors.listed_paths(d)
+    from pipeline.bathymetry.fetch_vectors import sheets as sheet_list
+    from pipeline.common.curated import GENERATED, SOURCE
+    sheets = sheet_list(SOURCE.fwa_gpkg)         # (T1268) as refit_all reads them; the source folder holds zips only
     z2c = defaultdict(set)
     for s in sheets:
         z2c[s["image_zip"]].add(s["wbid"])
-    zips = sorted(p.name for p in (d / "zips").glob("*.zip"))
+    zips = sorted(paths)
     if a.only:
         zips = [z for z in zips if z in set(a.only)]
     props = {p["chart_id"]: p for p in
@@ -139,7 +139,7 @@ def main(argv=None) -> int:
         for l in fwa_lakes(f"WATERBODY_KEY IN ({','.join(map(str, allw[k:k + 500]))})"):
             g = geom.get(l["wbk"])
             geom[l["wbk"]] = l["geometry"] if g is None else g.union(l["geometry"])
-    jobs = [(str(d / "zips" / z), z2c[z], want[z], {w: geom[w].wkb for w in want[z] if w in geom}) for z in zips]
+    jobs = [(str(paths[z]), z2c[z], want[z], {w: geom[w].wkb for w in want[z] if w in geom}) for z in zips]
     with Pool(min(a.workers, 4)) as pool:
         rows = [r for rs in pool.imap(_one, jobs, chunksize=2) for r in rs]
     rows.sort(key=lambda r: (r["zip"], r.get("coverage", "")))
@@ -149,7 +149,7 @@ def main(argv=None) -> int:
                      "each placing needs the owner's tick beside the PDF.", "licence": LICENCE_FLAG,
            "counts": dict(sorted(st.items())), "units": dict(sorted(units.items())),
            "feet": sorted({r["zip"] for r in rows if r.get("units") == "feet"}), "rows": rows}
-    dest = d / ("placing_all.json" if not a.only else "placing_only.json")
+    dest = GENERATED.mkdir("bathymetry") / ("placing_all.json" if not a.only else "placing_only.json")
     tmp = dest.with_suffix(".tmp")
     tmp.write_text(json.dumps(out, indent=1, sort_keys=True))
     os.replace(tmp, dest)
