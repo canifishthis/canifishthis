@@ -17,6 +17,7 @@ who reads it); every folder has a README.
 | [`inseason/`](inseason/README.md) | in-season notices bound to waters |
 | [`runtiming/`](runtiming/README.md) | the owner's run-timing calls |
 | [`review/`](review/README.md) | the review app's state: the append-only marks, closed domains |
+| [`bathymetry/`](bathymetry/README.md) | the accepted lake depth-sheet placings and the printed charts' depth units |
 
 The category splits again, and the split is the one people get wrong:
 

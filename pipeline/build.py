@@ -195,6 +195,9 @@ NOT_DELIVER_INPUTS = ("review.proposal_overrides", "review.closed",
                       # the proposals only; the accepted bathymetry / stocking matches, which no stage reads yet; and
                       # the closed areas, which the reach run reads (deliver is covered through its reach dependency)
                       "review.owner_carries", "review.recheck", "bathymetry.matches", "bathymetry.contour_matches",
+                      # (T1267) the frozen depth placings and the charts' units: read by the tiles stage only (T1268
+                      # keys the tiles on them), never by deliver
+                      "bathymetry.placings", "bathymetry.sheet_units",
                       "stocking.matches", "dfo_salmon.closed_areas")
 
 
