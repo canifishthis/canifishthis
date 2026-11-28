@@ -467,9 +467,20 @@ class InSeason(_Tree):
 class Bathymetry(_Tree):
     """The lake bathymetry charts matched to lakes: the owner's accepted matches, frozen. Written ONLY by
     `python -m pipeline.bathymetry.accept`, one owner decision per row, from the proposals under `GENERATED.bathymetry`;
-    no build reads them yet."""
+    no build reads them yet. The accepted PLACINGS of the vector depth sheets (T1267) are written ONLY by
+    `python -m pipeline.bathymetry.placings`; the printed charts' depth units by a person reading them."""
 
     model_config = _STRICT
+
+    #: PROMOTED (T1267): the vector depth sheets ACCEPTED onto their lakes, frozen: the fitter run of record's `high` /
+    #: `high_stretched` placings plus every chart the owner marked right (his adjustment composed and kept as saved).
+    #: Written ONLY by `python -m pipeline.bathymetry.placings` (through `curated_write`); an accepted row is never
+    #: rewritten by a rerun. Nothing of a lake's depth ships without its row here (owner 2026-11-28).
+    placings: Annotated[FilePath, At("bathymetry/placings.json")]
+    #: AUTHORED (T1267): the depth unit each printed chart states, read off the PDF's title block by a person, for the
+    #: sheets whose vector file says no units (the words read, where, the page). `placings` holds a sheet out until
+    #: its row here names a unit.
+    sheet_units: Annotated[FilePath, At("bathymetry/sheet_units.json")]
 
     #: PROMOTED: chart -> lake matches the owner accepted (or refused, with the reason). A plain `Path`: the file MAY BE
     #: ABSENT until the first accept writes it.
@@ -766,6 +777,13 @@ class Source(BaseModel):
     synopsis_pdf: Annotated[Path, At("fishing_synopsis.pdf")]
     #: `data/fetch_data.py`'s download and unzip directory (the FWA zips and their .gdb). Scratch: safe to delete.
     fetch_temp: Annotated[Path, At("temp_bc_data")]
+    #: (T1267) The Province's 2001 vector depth files, one zip per sheet (`python -m pipeline.bathymetry.fetch_vectors`),
+    #: git-ignored like `bathymetry_pdfs/`. Read ONLY through `pipeline.bathymetry.vectors.zip_path`, which checks each
+    #: zip against `bathymetry_vectors_sha256` and raises naming the file and the fetch command.
+    bathymetry_vectors: Annotated[Path, At("bathymetry_vectors")]
+    #: (T1267) The committed sha256 of every vector zip a placing may read (`bathy-vector-hashes/1`): a build proves its
+    #: input against it.
+    bathymetry_vectors_sha256: Annotated[Path, At("bathymetry_vectors.sha256.json")]
 
     _names = field_validator("*", mode="before")(_under("source"))
 

@@ -1,4 +1,5 @@
-"""Fetch the Province's 2001 vector depth files (zips of ArcInfo `.e00`) to a directory OUTSIDE git (T634 item 3).
+"""Fetch the Province's 2001 vector depth files (zips of ArcInfo `.e00`) into `SOURCE.bathymetry_vectors` (T634 item 3;
+T1267: the git-ignored source folder, its committed sha256 list `SOURCE.bathymetry_vectors_sha256`).
 
 WHAT IS FETCHED. Every sheet the sheet layer (`WHSE_FISH.BATH_SURVEY_MAP_SHEETS_SVW`, our gpkg layer
 `bathymetry_polygons`) flags `VECTORIZED_FLAG = Y`. Two names are tried per sheet: the layer's own `VECTOR_FILE_URL`
@@ -9,9 +10,13 @@ POLITE BY CONSTRUCTION: one request at a time, a pause between, a generic client
 is never fetched again; `status.json` records every answer), and it STOPS at the first refusal (HTTP 403 / 429 / 5xx)
 rather than retrying round it. A 200 that is not a zip is the server's "File not found" page: recorded as `missing`.
 
-Nothing here writes into the repo: `--out` is required and has no default.
+The zips land in `SOURCE.bathymetry_vectors` (git-ignored; `--out DIR` for another folder), then every listed zip is
+CHECKED against the committed hash list (`pipeline.bathymetry.vectors`): exit 1 naming any missing or differing zip.
+510 zips cover 512 sheets: 00153501 and 00153701 each hold a second line coverage repeating the first.
 
-    python -m pipeline.bathymetry.fetch_vectors --out ~/data-offgit/bc-bathymetry-vectors
+    python -m pipeline.bathymetry.fetch_vectors              # fetch what is missing, then check
+    python -m pipeline.bathymetry.fetch_vectors --check      # check only (no network)
+    python -m pipeline.bathymetry.fetch_vectors --write-hashes   # a DELIBERATE new fetch: rewrite the list, review the diff
 """
 from __future__ import annotations
 
@@ -55,7 +60,7 @@ def _write_json(path: Path, obj) -> None:
 
 
 def fetch(out: Path, names: list[str]) -> dict:
-    zips = out / "zips"
+    zips = out
     zips.mkdir(parents=True, exist_ok=True)
     status_path = out / "status.json"
     status = json.loads(status_path.read_text()) if status_path.exists() else {}
@@ -89,17 +94,42 @@ def fetch(out: Path, names: list[str]) -> dict:
     return status
 
 
+def check_report(out: Path) -> int:
+    """Every listed zip proved against the committed list; 0 when all are there and equal, else 1 (named)."""
+    from pipeline.bathymetry import vectors
+    got = vectors.check(out)
+    print(f"check: {len(got['ok'])} ok, {len(got['missing'])} missing, {len(got['differ'])} differ, "
+          f"{len(got['unlisted'])} unlisted (never read)")
+    for k in ("missing", "differ"):
+        for n in got[k]:
+            print(f"  {k}: {out / n}")
+    return 0 if not got["missing"] and not got["differ"] else 1
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--out", required=True, type=Path, help="a directory outside git")
+    ap.add_argument("--out", type=Path, help="defaults to SOURCE.bathymetry_vectors (git-ignored)")
     ap.add_argument("--gpkg", type=Path, help="defaults to config fetch.output_gpkg")
+    ap.add_argument("--check", action="store_true", help="check the zips against the committed list; no network")
+    ap.add_argument("--write-hashes", action="store_true",
+                    help="rewrite the committed hash list from the zips on disk (a deliberate new fetch only)")
     a = ap.parse_args(argv)
-    out = a.out.expanduser().resolve()
-    repo = Path(__file__).resolve().parents[2]
-    if repo in out.parents or out == repo:
-        raise SystemExit(f"--out {out} is inside the repo; the vector files stay outside git")
+    from pipeline.common.curated import SOURCE
+    out = (a.out.expanduser().resolve() if a.out else Path(SOURCE.bathymetry_vectors))
+    if a.write_hashes:
+        from pipeline.bathymetry import vectors
+        path = Path(SOURCE.bathymetry_vectors_sha256)
+        old = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        new = vectors.hash_list(out)
+        new["_about"] = old.get("_about") or "The sha256 of every vector depth zip a placing may read (T1267)."
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(new, indent=1) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+        print(f"wrote {path} ({len(new['zips'])} zips); review the diff before committing it")
+        return 0
+    if a.check:
+        return check_report(out)
     if a.gpkg is None:
-        from pipeline.common.curated import SOURCE
         a.gpkg = SOURCE.fwa_gpkg
     rows = sheets(a.gpkg)
     out.mkdir(parents=True, exist_ok=True)
@@ -108,7 +138,7 @@ def main(argv=None) -> int:
     status = fetch(out, names)
     ok = sum(1 for v in status.values() if v["state"] == "ok")
     print(f"done: {len(names)} names, {ok} zips, {sum(1 for v in status.values() if v['state'] == 'missing')} missing")
-    return 0
+    return check_report(out)
 
 
 if __name__ == "__main__":

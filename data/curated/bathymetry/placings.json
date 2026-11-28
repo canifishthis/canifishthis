@@ -1,0 +1,6 @@
+{
+ "_about": "PROMOTED (T1267): the vector depth sheets ACCEPTED onto their lakes, frozen. Written ONLY by `python -m pipeline.bathymetry.placings --freeze` (through curated_write); an accepted row is NEVER rewritten by a rerun (a disagreeing run is reported, not applied). Accepted = the fitter run of record's `high` / `high_stretched` placings plus every chart the owner marked `right` / `right_adjusted` (his adjustment composed into `pose` and kept as saved in `adjust`); a chart he marked wrong_lake / wrong_fit / unsure never: his later wrong mark, or a newer survey of the lake, WITHDRAWS a row (`status: withdrawn`, kept as a record, never drawn; `placings.shipping()` is the view every reader takes). Each row: the sheet and its zip's sha256, the lake(s) by durable item id, the full pose (origin, mirror, scale, angle_deg, dx, dy; refit.apply's order, EPSG:3005 metres), the units with their evidence, how and when it was accepted. Read by pipeline.bathymetry.placed_contours (T1268); nothing of a lake's depth ships without its row here (owner 2026-11-28).",
+ "schema": "bathy-placings/1",
+ "licence": "Province of BC vector lake depth maps; the owner holds the permission (T201, 2026-11-26)",
+ "placings": []
+}
